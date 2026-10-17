@@ -9,8 +9,13 @@ namespace Typryt;
 /// </summary>
 public readonly record struct KeyInput(char? Character, bool IsBackspace, bool IsBreak);
 
-/// <summary>A word that ended with a terminator key (space or punctuation).</summary>
-public sealed record CompletedWord(string Text, char Terminator);
+/// <summary>
+/// A word that the user finished. Trail is everything typed after the word, up to and
+/// including the key that finished it (for example ". " or ","). IsCorrectable is false
+/// for words the pre-filters skip; those are still reported so the caller can track
+/// what is on screen.
+/// </summary>
+public sealed record CompletedWord(string Text, char Terminator, string Trail, bool IsCorrectable);
 
 /// <summary>
 /// Builds the word being typed. A space or punctuation key completes the word.
@@ -61,12 +66,13 @@ public sealed class WordDetector
         {
             if (_pendingPeriod is not null || _word.Length == 0)
             {
-                // A second period, or a period with no word before it: nothing to correct.
+                // A second period, or a period with no word before it: nothing to report.
                 _pendingPeriod = null;
                 _word.Clear();
                 return null;
             }
-            _pendingPeriod = new CompletedWord(_word.ToString(), '.');
+            string text = _word.ToString();
+            _pendingPeriod = new CompletedWord(text, '.', ".", IsCorrectable(text));
             _word.Clear();
             return null;
         }
@@ -88,12 +94,14 @@ public sealed class WordDetector
             CompletedWord? result = null;
             if (_pendingPeriod is not null)
             {
-                if (IsCorrectable(_pendingPeriod.Text)) result = _pendingPeriod;
+                // The period really ended the word, so the trail is the period plus this key.
+                result = new CompletedWord(_pendingPeriod.Text, '.', "." + c, _pendingPeriod.IsCorrectable);
                 _pendingPeriod = null;
             }
-            else if (_word.Length > 0 && IsCorrectable(_word.ToString()))
+            else if (_word.Length > 0)
             {
-                result = new CompletedWord(_word.ToString(), c);
+                string text = _word.ToString();
+                result = new CompletedWord(text, c, c.ToString(), IsCorrectable(text));
             }
             _word.Clear();
             return result;
