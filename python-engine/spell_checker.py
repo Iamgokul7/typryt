@@ -1,4 +1,4 @@
-"""Correction pipeline: slang, apostrophes, then symspellpy, then Hunspell.
+"""Correction pipeline: slang, apostrophes, abbreviations, then symspellpy, then Hunspell.
 
 Order follows the spec. Each layer returns a correction with a confidence score.
 The C# side applies a correction only when its confidence is above the user's threshold.
@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from symspellpy import SymSpell, Verbosity
 from importlib.resources import files
 
+from abbreviation_dict import ABBREVIATIONS
 from apostrophe import apply_apostrophe
 from hunspell_checker import HunspellChecker
 from slang_dict import SLANG
@@ -44,7 +45,7 @@ class SpellChecker:
             raise RuntimeError(f"Could not load symspellpy dictionary: {dictionary_path}")
         self._hunspell = HunspellChecker()
 
-    def correct(self, word: str) -> CorrectionResult:
+    def correct(self, word: str, abbreviations_enabled: bool = True) -> CorrectionResult:
         # Numbers, mixed alphanumerics, and punctuation pass through.
         # ALL CAPS (LOL, CEO) is never corrected.
         if not word.isalpha() or (len(word) > 1 and word.isupper()):
@@ -52,7 +53,7 @@ class SpellChecker:
 
         lowered = word.lower()
 
-        # Layer 0: slang and apostrophe rules are deterministic.
+        # Layer 0: slang, apostrophe, and abbreviation rules are deterministic.
         slang = SLANG.get(lowered)
         if slang is not None:
             return CorrectionResult(word, _match_case(word, slang), RULE_CONFIDENCE)
@@ -60,6 +61,11 @@ class SpellChecker:
         apostrophe = apply_apostrophe(word)
         if apostrophe is not None:
             return CorrectionResult(word, apostrophe, RULE_CONFIDENCE)
+
+        if abbreviations_enabled:
+            abbreviation = ABBREVIATIONS.get(lowered)
+            if abbreviation is not None:
+                return CorrectionResult(word, _match_case(word, abbreviation), RULE_CONFIDENCE)
 
         # Layer 1: symspellpy. A distance-0 match means the word is already correct.
         suggestions = self._symspell.lookup(lowered, Verbosity.TOP, max_edit_distance=MAX_EDIT_DISTANCE)
