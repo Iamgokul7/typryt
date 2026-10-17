@@ -17,6 +17,9 @@ public partial class App : Application
     // One engine session for the whole app for now; Phase 9 keys it per window.
     private const string SessionId = "default";
 
+    private const string SingleInstanceName = "Typryt.SingleInstance";
+
+    private Mutex? _singleInstance;
     private KeyboardHook? _keyboardHook;
     private readonly WordDetector _wordDetector = new();
     private readonly ApiClient _api = new();
@@ -41,6 +44,14 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Only one copy may run. Two copies would each install a keyboard hook and correct every word twice.
+        _singleInstance = new Mutex(initiallyOwned: true, SingleInstanceName, out bool firstCopy);
+        if (!firstCopy)
+        {
+            Shutdown();
+            return;
+        }
+
         _keyboardHook = new KeyboardHook();
         _keyboardHook.KeyPressed += OnKeyPressed;
         _keyboardHook.Install();
@@ -54,6 +65,18 @@ public partial class App : Application
         _jobs.Writer.TryComplete();
         _shutdown.Cancel();
         _api.Dispose();
+        if (_singleInstance is not null)
+        {
+            try
+            {
+                _singleInstance.ReleaseMutex();
+            }
+            catch (ApplicationException)
+            {
+                // Not owned by this thread: nothing to release.
+            }
+            _singleInstance.Dispose();
+        }
         base.OnExit(e);
     }
 
