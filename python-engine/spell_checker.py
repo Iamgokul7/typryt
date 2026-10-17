@@ -1,26 +1,29 @@
-"""Correction pipeline: slang, apostrophes, abbreviations, then symspellpy, then Hunspell.
+"""Correction pipeline for one word.
 
-Order follows the spec. Each layer returns a correction with a confidence score.
-The C# side applies a correction only when its confidence is above the user's threshold.
+Order: lone "i", slang, apostrophes, abbreviations, symspellpy, Hunspell.
+Capitalization after a sentence end is applied last. Each result carries a
+confidence between 0 and 1; the C# side applies a correction only when that
+confidence meets the user's level threshold.
 """
 
 from dataclasses import dataclass
+from importlib.resources import files
 
 from symspellpy import SymSpell, Verbosity
-from importlib.resources import files
 
 from abbreviation_dict import ABBREVIATIONS
 from apostrophe import apply_apostrophe
+from capitalization import capitalize_for_context
+from confidence import (
+    HUNSPELL_SUGGESTION_CONFIDENCE,
+    RULE_CONFIDENCE,
+    symspell_confidence,
+)
 from hunspell_checker import HunspellChecker
 from slang_dict import SLANG
 
 DICTIONARY_NAME = "frequency_dictionary_en_82_765.txt"
 MAX_EDIT_DISTANCE = 2
-
-# Confidence for each source. Deterministic rules score higher than fuzzy matches.
-RULE_CONFIDENCE = 0.95
-SYMSPELL_CONFIDENCE_BY_DISTANCE = {1: 0.9, 2: 0.6}
-HUNSPELL_SUGGESTION_CONFIDENCE = 0.5
 
 
 @dataclass
@@ -45,13 +48,32 @@ class SpellChecker:
             raise RuntimeError(f"Could not load symspellpy dictionary: {dictionary_path}")
         self._hunspell = HunspellChecker()
 
-    def correct(self, word: str, abbreviations_enabled: bool = True) -> CorrectionResult:
+    def correct(
+        self,
+        word: str,
+        previous_word: str | None = None,
+        abbreviations_enabled: bool = True,
+    ) -> CorrectionResult:
         # Numbers, mixed alphanumerics, and punctuation pass through.
         # ALL CAPS (LOL, CEO) is never corrected.
         if not word.isalpha() or (len(word) > 1 and word.isupper()):
             return CorrectionResult(word, word, 1.0)
 
+        result = self._word_correction(word, abbreviations_enabled)
+
+        # Capitalize after a sentence end. Only applies when the word is otherwise unchanged
+        # or already corrected; the confidence stays with the underlying correction.
+        capitalized = capitalize_for_context(result.correction, previous_word)
+        if capitalized != result.correction:
+            return CorrectionResult(word, capitalized, max(result.confidence, RULE_CONFIDENCE))
+        return result
+
+    def _word_correction(self, word: str, abbreviations_enabled: bool) -> CorrectionResult:
         lowered = word.lower()
+
+        # A lone "i" is always "I".
+        if lowered == "i":
+            return CorrectionResult(word, "I", RULE_CONFIDENCE)
 
         # Layer 0: slang, apostrophe, and abbreviation rules are deterministic.
         slang = SLANG.get(lowered)
@@ -78,7 +100,8 @@ class SpellChecker:
 
         if suggestions:
             best = suggestions[0]
-            confidence = SYMSPELL_CONFIDENCE_BY_DISTANCE.get(best.distance, 0.0)
+            term_count = self._symspell.words.get(best.term, 0)
+            confidence = symspell_confidence(best.distance, term_count)
             return CorrectionResult(word, _match_case(word, best.term), confidence)
 
         hunspell_suggestions = self._hunspell.suggest(lowered)
