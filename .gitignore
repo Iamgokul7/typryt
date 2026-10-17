@@ -1,0 +1,18 @@
+# Python
+python-engine/venv/
+__pycache__/
+*.pyc
+
+# Build output
+bin/
+obj/
+dist/
+build/
+
+# Private planning docs (spec PDF, prompt text)
+Application logic/
+
+# Editor / OS
+.vs/
+.vscode/
+Thumbs.db
