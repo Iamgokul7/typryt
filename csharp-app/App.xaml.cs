@@ -23,6 +23,10 @@ public partial class App : Application
     private KeyboardHook? _keyboardHook;
     private readonly WordDetector _wordDetector = new();
     private readonly ApiClient _api = new();
+
+    // Used only on the worker thread, except the toast, which is used only on the UI thread.
+    private readonly UndoManager _undo = new();
+    private readonly ToastManager _toast = new();
     private readonly Channel<Job> _jobs = Channel.CreateUnbounded<Job>(new UnboundedChannelOptions { SingleReader = true });
     private readonly CancellationTokenSource _shutdown = new();
     private Task? _worker;
@@ -36,7 +40,7 @@ public partial class App : Application
     // Only the worker thread reads and writes this: the last word on screen, and its trail.
     private ScreenWord? _lastWord;
 
-    private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence);
+    private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence, bool UndoRequest = false);
 
     private sealed record ScreenWord(string Text, string Trail);
 
@@ -54,6 +58,7 @@ public partial class App : Application
 
         _keyboardHook = new KeyboardHook();
         _keyboardHook.KeyPressed += OnKeyPressed;
+        _keyboardHook.AltUPressed += OnAltUPressed;
         _keyboardHook.Install();
 
         _worker = Task.Run(() => ProcessJobsAsync(_shutdown.Token));
@@ -109,6 +114,14 @@ public partial class App : Application
         }
     }
 
+    /// <summary>Runs on the hook thread. Takes Alt+U only in Notepad, and queues the undo.</summary>
+    private bool OnAltUPressed()
+    {
+        if (!IsAllowedWindowActive()) return false;
+        _jobs.Writer.TryWrite(new Job(null, ResetContext: false, 0, UndoRequest: true));
+        return true;
+    }
+
     private static bool EndsContext(char c) =>
         !(char.IsLetterOrDigit(c) || c == '\'' || c is ' ' or ',' or '.' or '!' or '?' or ';' or ':');
 
@@ -120,7 +133,11 @@ public partial class App : Application
             {
                 try
                 {
-                    if (job.ResetContext)
+                    if (job.UndoRequest)
+                    {
+                        UndoLastCorrection();
+                    }
+                    else if (job.ResetContext)
                     {
                         _lastWord = null;
                         await _api.ResetAsync(SessionId, ct);
@@ -150,7 +167,8 @@ public partial class App : Application
     {
         // Words the pre-filters skip never reach the engine, so the engine's previous word
         // is no longer the word before this one. Revisions can't be trusted after that.
-        if (!word.IsCorrectable)
+        // Words the user undid are never corrected again.
+        if (!word.IsCorrectable || _undo.IsUndone(word.Text))
         {
             _lastWord = null;
             return;
@@ -205,6 +223,39 @@ public partial class App : Application
         }
 
         _lastWord = new ScreenWord(corrected, word.Trail);
+
+        if (corrected != word.Text)
+        {
+            _undo.Record(word.Text, corrected, word.Trail, keySequence);
+            ShowToast(word.Text, corrected);
+        }
+    }
+
+    /// <summary>Restores the word a correction replaced, if the undo window is still open and nothing was typed since.</summary>
+    private void UndoLastCorrection()
+    {
+        var correction = _undo.TryUndo(Volatile.Read(ref _keySequence));
+        HideToast();
+        if (correction is null) return;
+
+        TextReplacer.Replace(correction.Corrected.Length + correction.Trail.Length, correction.Original + correction.Trail);
+        _lastWord = new ScreenWord(correction.Original, correction.Trail);
+    }
+
+    private void ShowToast(string original, string corrected)
+    {
+        Dispatcher.Invoke(() => _toast.Show(original, corrected, RequestUndo));
+    }
+
+    private void HideToast()
+    {
+        Dispatcher.Invoke(() => _toast.Hide());
+    }
+
+    /// <summary>Called from the toast's Undo button on the UI thread.</summary>
+    private void RequestUndo()
+    {
+        _jobs.Writer.TryWrite(new Job(null, ResetContext: false, 0, UndoRequest: true));
     }
 
     private static bool IsAllowedWindowActive()

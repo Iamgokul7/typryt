@@ -41,7 +41,15 @@ internal sealed class KeyboardHook : IDisposable
     private LowLevelKeyboardProc? _proc;
     private IntPtr _hookId = IntPtr.Zero;
 
+    private const int VK_U = 0x55;
+
     public event Action<KeyInput>? KeyPressed;
+
+    /// <summary>
+    /// Raised when Alt+U is pressed. A handler that returns true takes the key: Windows
+    /// does not pass it to the focused app. Must return fast.
+    /// </summary>
+    public event Func<bool>? AltUPressed;
 
     public void Install()
     {
@@ -70,6 +78,11 @@ internal sealed class KeyboardHook : IDisposable
         if (nCode >= 0 && (message == WM_KEYDOWN || message == WM_SYSKEYDOWN))
         {
             var info = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+            if ((info.flags & LLKHF_INJECTED) == 0 && info.vkCode == VK_U && IsDown(VK_MENU) && !IsDown(VK_CONTROL))
+            {
+                bool taken = AltUPressed?.Invoke() ?? false;
+                if (taken) return (IntPtr)1;
+            }
             if ((info.flags & LLKHF_INJECTED) == 0)
             {
                 KeyPressed?.Invoke(Translate(info));
