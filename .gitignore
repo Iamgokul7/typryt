@@ -9,6 +9,9 @@ obj/
 dist/
 build/
 
+# Language models (jamspell; large binaries, not in git)
+python-engine/models/
+
 # Private planning docs (spec PDF, prompt text)
 Application logic/
 
