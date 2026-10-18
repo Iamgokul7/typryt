@@ -56,6 +56,7 @@ class SpellChecker:
         previous_word: str | None = None,
         abbreviations_enabled: bool = True,
         learning_enabled: bool = True,
+        auto_capitalize: bool = True,
     ) -> CorrectionResult:
         # Numbers, mixed alphanumerics, and punctuation pass through.
         # ALL CAPS (LOL, CEO) is never corrected.
@@ -70,7 +71,9 @@ class SpellChecker:
 
         # Capitalize after a sentence end. Only applies when the word is otherwise unchanged
         # or already corrected; the confidence stays with the underlying correction.
-        capitalized = capitalize_for_context(result.correction, previous_word)
+        capitalized = (
+            capitalize_for_context(result.correction, previous_word) if auto_capitalize else result.correction
+        )
         if capitalized != result.correction:
             return CorrectionResult(word, capitalized, max(result.confidence, RULE_CONFIDENCE))
         return result

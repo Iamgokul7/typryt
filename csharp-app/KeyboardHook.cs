@@ -58,6 +58,12 @@ internal sealed class KeyboardHook : IDisposable
     /// </summary>
     public event Func<bool>? AltUPressed;
 
+    /// <summary>
+    /// The letter that undoes a correction when pressed with Alt (a virtual-key code, A to Z).
+    /// Set from the settings; read on the hook thread.
+    /// </summary>
+    public int UndoVirtualKey { get; set; } = VK_U;
+
     public void Install()
     {
         _proc = Callback;
@@ -97,7 +103,7 @@ internal sealed class KeyboardHook : IDisposable
                 _altDown = isDown;
             }
 
-            if (!injected && isDown && vk == VK_U && _altDown && !IsDown(VK_CONTROL))
+            if (!injected && isDown && vk == UndoVirtualKey && _altDown && !IsDown(VK_CONTROL))
             {
                 bool taken = AltUPressed?.Invoke() ?? false;
                 if (taken)

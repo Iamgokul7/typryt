@@ -25,7 +25,7 @@ public sealed class ApiClient : IDisposable
     }
 
     /// <summary>Returns the engine's answer, or null if the engine is unreachable or slow.</summary>
-    public async Task<CorrectResponse?> CorrectAsync(string word, string sessionId, bool abbreviationsEnabled, CancellationToken ct, bool learningEnabled = true)
+    public async Task<CorrectResponse?> CorrectAsync(string word, string sessionId, bool abbreviationsEnabled, CancellationToken ct, bool learningEnabled = true, bool autoCapitalize = true)
     {
         try
         {
@@ -35,6 +35,7 @@ public sealed class ApiClient : IDisposable
                 SessionId = sessionId,
                 AbbreviationsEnabled = abbreviationsEnabled,
                 LearningEnabled = learningEnabled,
+                AutoCapitalize = autoCapitalize,
             };
             using var response = await _http.PostAsJsonAsync("correct", request, JsonOptions, ct);
             if (!response.IsSuccessStatusCode) return null;
@@ -91,6 +92,7 @@ public sealed class ApiClient : IDisposable
         [JsonPropertyName("session_id")] public string SessionId { get; set; } = "";
         [JsonPropertyName("abbreviations_enabled")] public bool AbbreviationsEnabled { get; set; }
         [JsonPropertyName("learning_enabled")] public bool LearningEnabled { get; set; }
+        [JsonPropertyName("auto_capitalize")] public bool AutoCapitalize { get; set; }
     }
 
     private sealed class LearnUndoRequest

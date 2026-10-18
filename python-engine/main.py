@@ -40,6 +40,8 @@ class CorrectRequest(BaseModel):
     abbreviations_enabled: bool = True
     # Learning mode: when off, unknown words are not counted and undos are not remembered.
     learning_enabled: bool = True
+    # Auto-capitalize: when off, the first word after a sentence end is left as typed.
+    auto_capitalize: bool = True
 
 
 class PreviousCorrection(BaseModel):
@@ -107,6 +109,7 @@ def correct(request: CorrectRequest) -> CorrectResponse:
         previous,
         request.abbreviations_enabled,
         request.learning_enabled,
+        request.auto_capitalize,
     )
     buffer.push(result.correction)
 

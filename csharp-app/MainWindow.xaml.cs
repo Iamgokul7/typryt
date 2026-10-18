@@ -9,5 +9,6 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Home.Initialize(stats, permissions);
+        Settings.Initialize(permissions);
     }
 }
