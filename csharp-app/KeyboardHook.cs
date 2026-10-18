@@ -16,6 +16,8 @@ internal sealed class KeyboardHook : IDisposable
     private const int WH_KEYBOARD_LL = 13;
     private const int WM_KEYDOWN = 0x0100;
     private const int WM_SYSKEYDOWN = 0x0104;
+    private const int WM_KEYUP = 0x0101;
+    private const int WM_SYSKEYUP = 0x0105;
     private const uint LLKHF_INJECTED = 0x10;
 
     private const int VK_BACK = 0x08;
@@ -24,6 +26,8 @@ internal sealed class KeyboardHook : IDisposable
     private const int VK_SHIFT = 0x10;
     private const int VK_CONTROL = 0x11;
     private const int VK_MENU = 0x12;
+    private const int VK_LMENU = 0xA4;
+    private const int VK_RMENU = 0xA5;
     private const int VK_ESCAPE = 0x1B;
     private const int VK_CAPITAL = 0x14;
     private const int VK_PRIOR = 0x21;   // Page Up
@@ -40,6 +44,9 @@ internal sealed class KeyboardHook : IDisposable
 
     private LowLevelKeyboardProc? _proc;
     private IntPtr _hookId = IntPtr.Zero;
+
+    // Alt key state tracked from the hook's own key events.
+    private bool _altDown;
 
     private const int VK_U = 0x55;
 
@@ -75,21 +82,61 @@ internal sealed class KeyboardHook : IDisposable
     private IntPtr Callback(int nCode, IntPtr wParam, IntPtr lParam)
     {
         int message = wParam.ToInt32();
-        if (nCode >= 0 && (message == WM_KEYDOWN || message == WM_SYSKEYDOWN))
+        bool isDown = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
+        bool isUp = message == WM_KEYUP || message == WM_SYSKEYUP;
+        if (nCode >= 0 && (isDown || isUp))
         {
             var info = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
-            if ((info.flags & LLKHF_INJECTED) == 0 && info.vkCode == VK_U && IsDown(VK_MENU) && !IsDown(VK_CONTROL))
+            bool injected = (info.flags & LLKHF_INJECTED) != 0;
+            int vk = (int)info.vkCode;
+
+            // Track Alt from its own key events. Asking Windows for the Alt state at the moment
+            // U is pressed can be out of date when the keys are pressed close together.
+            if (!injected && vk is VK_MENU or VK_LMENU or VK_RMENU)
+            {
+                _altDown = isDown;
+            }
+
+            if (!injected && isDown && vk == VK_U && _altDown && !IsDown(VK_CONTROL))
             {
                 bool taken = AltUPressed?.Invoke() ?? false;
-                if (taken) return (IntPtr)1;
+                if (taken)
+                {
+                    // Swallowing U leaves Alt pressed alone, and Windows would open Notepad's menu bar
+                    // when Alt is released. A harmless key pressed while Alt is held prevents that.
+                    SendHarmlessKey();
+                    return (IntPtr)1;
+                }
             }
-            if ((info.flags & LLKHF_INJECTED) == 0)
+
+            // Modifier keys alone (Alt, Shift, Ctrl, Win, Caps Lock) type nothing. Reporting them would
+            // count as typing and would block undo, because Alt+U would look like typing after a correction.
+            if (!injected && isDown && !IsModifierKey(vk))
             {
                 KeyPressed?.Invoke(Translate(info));
             }
         }
         return CallNextHookEx(_hookId, nCode, wParam, lParam);
     }
+
+    // An unassigned virtual key that no application uses, so it has no visible effect.
+    private const byte VK_UNASSIGNED = 0xE8;
+    private const uint KEYEVENTF_KEYUP_KB = 0x0002;
+
+    private static void SendHarmlessKey()
+    {
+        keybd_event(VK_UNASSIGNED, 0, 0, UIntPtr.Zero);
+        keybd_event(VK_UNASSIGNED, 0, KEYEVENTF_KEYUP_KB, UIntPtr.Zero);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    private static bool IsModifierKey(int vk) => vk is VK_SHIFT or VK_CONTROL or VK_MENU or VK_CAPITAL
+        or 0x5B or 0x5C        // Left and right Windows keys
+        or 0xA0 or 0xA1        // Left and right Shift
+        or 0xA2 or 0xA3        // Left and right Ctrl
+        or 0xA4 or 0xA5;       // Left and right Alt
 
     /// <summary>Turns a raw key into the KeyInput the word detector understands.</summary>
     private static KeyInput Translate(KBDLLHOOKSTRUCT info)

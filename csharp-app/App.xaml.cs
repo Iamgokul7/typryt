@@ -167,7 +167,8 @@ public partial class App : Application
     {
         // Words the pre-filters skip never reach the engine, so the engine's previous word
         // is no longer the word before this one. Revisions can't be trusted after that.
-        // Words the user undid are never corrected again.
+        // Words the user undid are never corrected again (the list lasts until the app restarts;
+        // Phase 7 saves it and adds a Settings page to remove words).
         if (!word.IsCorrectable || _undo.IsUndone(word.Text))
         {
             _lastWord = null;
