@@ -72,8 +72,16 @@ public partial class App : Application
 
         _worker = Task.Run(() => ProcessJobsAsync(_shutdown.Token));
 
-        // The main window opens at startup for now. The tray icon that reopens it is Phase 11.
+        // The splash plays on every launch, then the main window opens. The tray icon that
+        // reopens the main window is Phase 11.
         ThemeManager.Apply(_permissions.Theme);
+        var splash = new SplashScreen();
+        splash.Closed += (_, _) => ShowMainWindow();
+        splash.Show();
+    }
+
+    private void ShowMainWindow()
+    {
         var main = new MainWindow(_stats, _permissions);
         MainWindow = main;
         main.Show();
