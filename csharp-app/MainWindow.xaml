@@ -17,7 +17,7 @@
             <local:SettingsView x:Name="Settings"/>
         </TabItem>
         <TabItem Header="Dictionary">
-            <TextBlock Margin="16" Text="Dictionary arrives in part 9c." Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <local:DictionaryView/>
         </TabItem>
     </TabControl>
 </Window>
