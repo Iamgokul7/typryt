@@ -135,7 +135,7 @@ public partial class App : Application
                 {
                     if (job.UndoRequest)
                     {
-                        UndoLastCorrection();
+                        await UndoLastCorrectionAsync(ct);
                     }
                     else if (job.ResetContext)
                     {
@@ -167,9 +167,9 @@ public partial class App : Application
     {
         // Words the pre-filters skip never reach the engine, so the engine's previous word
         // is no longer the word before this one. Revisions can't be trusted after that.
-        // Words the user undid are never corrected again (the list lasts until the app restarts;
-        // Phase 7 saves it and adds a Settings page to remove words).
-        if (!word.IsCorrectable || _undo.IsUndone(word.Text))
+        // Words the user undid are never corrected again. The engine keeps that list and leaves
+        // those words unchanged, so only the pre-filters are checked here.
+        if (!word.IsCorrectable)
         {
             _lastWord = null;
             return;
@@ -233,7 +233,7 @@ public partial class App : Application
     }
 
     /// <summary>Restores the word a correction replaced, if the undo window is still open and nothing was typed since.</summary>
-    private void UndoLastCorrection()
+    private async Task UndoLastCorrectionAsync(CancellationToken ct)
     {
         var attempt = _undo.Attempt(Volatile.Read(ref _keySequence));
         var correction = attempt.Correction;
@@ -258,6 +258,9 @@ public partial class App : Application
         HideToast();
         TextReplacer.Replace(correction.Corrected.Length + correction.Trail.Length, correction.Original + correction.Trail);
         _lastWord = new ScreenWord(correction.Original, correction.Trail);
+
+        // The engine remembers the undo, so this word is never corrected again (also after a restart).
+        await _api.LearnUndoAsync(correction.Original, ct);
     }
 
     private void ShowMessage(string message)
