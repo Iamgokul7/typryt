@@ -4,11 +4,14 @@ spylls reads the same .aff/.dic files as Hunspell, so no C++ build is needed.
 The en_US dictionary lives in python-engine/dictionaries/.
 """
 
+import sys
 from pathlib import Path
 
 from spylls.hunspell import Dictionary
 
-DICTIONARY_DIR = Path(__file__).parent / "dictionaries"
+# A packaged engine unpacks its bundled files under sys._MEIPASS; from source they sit next to this file.
+_BUNDLE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+DICTIONARY_DIR = _BUNDLE_ROOT / "dictionaries"
 DICTIONARY_BASENAME = "en_US"
 
 

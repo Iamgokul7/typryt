@@ -45,7 +45,7 @@ public sealed class StatsStore
         Load();
     }
 
-    public static string DefaultPath() => Path.Combine(Path.GetDirectoryName(PermissionManager.DefaultPath())!, "stats.json");
+    public static string DefaultPath() => Path.Combine(AppPaths.DataFolder(), "stats.json");
 
     public int TotalFixed { get { lock (_lock) return _data.TotalFixed; } }
 

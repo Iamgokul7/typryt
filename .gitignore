@@ -34,3 +34,9 @@ shared/config.json.corrupt
 shared/stats.json
 shared/stats.json.tmp
 shared/stats.json.corrupt
+
+# Release outputs (build products, not source)
+publish/
+installer/Output/
+
+python-engine/*.spec
