@@ -12,6 +12,11 @@ build/
 # Language models (jamspell; large binaries, not in git)
 python-engine/models/
 
+# User data: learned words and undo history (personal, not for git)
+shared/personal_dict.json
+shared/personal_dict.json.tmp
+shared/personal_dict.json.corrupt
+
 # Private planning docs (spec PDF, prompt text)
 Application logic/
 

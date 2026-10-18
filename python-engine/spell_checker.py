@@ -20,6 +20,7 @@ from confidence import (
     symspell_confidence,
 )
 from hunspell_checker import HunspellChecker
+from learner import Learner
 from slang_dict import SLANG
 
 DICTIONARY_NAME = "frequency_dictionary_en_82_765.txt"
@@ -41,7 +42,8 @@ def _match_case(original: str, correction: str) -> str:
 
 
 class SpellChecker:
-    def __init__(self) -> None:
+    def __init__(self, learner: Learner) -> None:
+        self._learner = learner
         self._symspell = SymSpell(max_dictionary_edit_distance=MAX_EDIT_DISTANCE, prefix_length=7)
         dictionary_path = files("symspellpy") / DICTIONARY_NAME
         if not self._symspell.load_dictionary(str(dictionary_path), term_index=0, count_index=1):
@@ -53,13 +55,18 @@ class SpellChecker:
         word: str,
         previous_word: str | None = None,
         abbreviations_enabled: bool = True,
+        learning_enabled: bool = True,
     ) -> CorrectionResult:
         # Numbers, mixed alphanumerics, and punctuation pass through.
         # ALL CAPS (LOL, CEO) is never corrected.
         if not word.isalpha() or (len(word) > 1 and word.isupper()):
             return CorrectionResult(word, word, 1.0)
 
-        result = self._word_correction(word, abbreviations_enabled)
+        # Personal words and words the user undid come first, before every other rule.
+        if self._learner.should_skip(word):
+            return CorrectionResult(word, word, 1.0)
+
+        result = self._word_correction(word, abbreviations_enabled, learning_enabled)
 
         # Capitalize after a sentence end. Only applies when the word is otherwise unchanged
         # or already corrected; the confidence stays with the underlying correction.
@@ -68,7 +75,7 @@ class SpellChecker:
             return CorrectionResult(word, capitalized, max(result.confidence, RULE_CONFIDENCE))
         return result
 
-    def _word_correction(self, word: str, abbreviations_enabled: bool) -> CorrectionResult:
+    def _word_correction(self, word: str, abbreviations_enabled: bool, learning_enabled: bool) -> CorrectionResult:
         lowered = word.lower()
 
         # A lone "i" is always "I".
@@ -110,4 +117,8 @@ class SpellChecker:
                 word, _match_case(word, hunspell_suggestions[0]), HUNSPELL_SUGGESTION_CONFIDENCE
             )
 
+        # No dictionary knows this word and no correction was found: count it. Enough
+        # typings make it a personal word (the learner decides).
+        if learning_enabled:
+            self._learner.observe_unknown(word)
         return CorrectionResult(word, word, 1.0)

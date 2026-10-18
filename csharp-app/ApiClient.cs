@@ -25,11 +25,17 @@ public sealed class ApiClient : IDisposable
     }
 
     /// <summary>Returns the engine's answer, or null if the engine is unreachable or slow.</summary>
-    public async Task<CorrectResponse?> CorrectAsync(string word, string sessionId, bool abbreviationsEnabled, CancellationToken ct)
+    public async Task<CorrectResponse?> CorrectAsync(string word, string sessionId, bool abbreviationsEnabled, CancellationToken ct, bool learningEnabled = true)
     {
         try
         {
-            var request = new CorrectRequest { Word = word, SessionId = sessionId, AbbreviationsEnabled = abbreviationsEnabled };
+            var request = new CorrectRequest
+            {
+                Word = word,
+                SessionId = sessionId,
+                AbbreviationsEnabled = abbreviationsEnabled,
+                LearningEnabled = learningEnabled,
+            };
             using var response = await _http.PostAsJsonAsync("correct", request, JsonOptions, ct);
             if (!response.IsSuccessStatusCode) return null;
             return await response.Content.ReadFromJsonAsync<CorrectResponse>(JsonOptions, ct);
@@ -41,6 +47,24 @@ public sealed class ApiClient : IDisposable
         catch (TaskCanceledException)
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Tells the engine the user undid a correction of this word, so it is never corrected again.
+    /// Failures are ignored: the undo itself has already happened on screen.
+    /// </summary>
+    public async Task LearnUndoAsync(string word, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync("learn/undo", new LearnUndoRequest { Word = word }, JsonOptions, ct);
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (TaskCanceledException)
+        {
         }
     }
 
@@ -66,6 +90,12 @@ public sealed class ApiClient : IDisposable
         [JsonPropertyName("word")] public string Word { get; set; } = "";
         [JsonPropertyName("session_id")] public string SessionId { get; set; } = "";
         [JsonPropertyName("abbreviations_enabled")] public bool AbbreviationsEnabled { get; set; }
+        [JsonPropertyName("learning_enabled")] public bool LearningEnabled { get; set; }
+    }
+
+    private sealed class LearnUndoRequest
+    {
+        [JsonPropertyName("word")] public string Word { get; set; } = "";
     }
 
     private sealed class ResetRequest
