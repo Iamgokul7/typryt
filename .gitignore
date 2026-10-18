@@ -24,3 +24,8 @@ Application logic/
 .vs/
 .vscode/
 Thumbs.db
+
+# User settings: which apps are allowed (personal, not for git)
+shared/config.json
+shared/config.json.tmp
+shared/config.json.corrupt
