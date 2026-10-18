@@ -41,6 +41,12 @@ public partial class App : Application
     // Only the worker thread reads and writes this: the last word on screen, and its trail.
     private ScreenWord? _lastWord;
 
+    // Tray icon, engine process, and dashboard window. All used on the UI thread.
+    private TrayIcon? _tray;
+    private EngineLauncher? _engine;
+    private MainWindow? _main;
+    private bool _exiting;
+
     private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence, bool UndoRequest = false);
 
     private sealed record ScreenWord(string Text, string Trail);
@@ -72,20 +78,52 @@ public partial class App : Application
 
         _worker = Task.Run(() => ProcessJobsAsync(_shutdown.Token));
 
-        // The splash plays on every launch, then the main window opens. The tray icon that
-        // reopens the main window is Phase 11.
+        // The engine starts in the background, so the splash is not held up by it.
+        _engine = new EngineLauncher(EngineLauncher.FindEngineFolder() ?? string.Empty);
+        Task.Run(() => _engine.StartIfNeeded());
+
+        // The app lives in the tray. The dashboard opens only when asked for.
+        _tray = new TrayIcon(_permissions.MasterEnabled);
+        _tray.OpenDashboardRequested += ShowDashboard;
+        _tray.OpenHistoryRequested += ShowDashboard;
+        _tray.ToggleRequested += ToggleCorrections;
+        _tray.ExitRequested += ExitApp;
+
         ThemeManager.Apply(_permissions.Theme);
-        var splash = new SplashScreen();
-        splash.Closed += (_, _) => ShowMainWindow();
-        splash.Show();
+        new SplashScreen().Show();
     }
 
-    private void ShowMainWindow()
+    /// <summary>Shows the dashboard, creating it the first time. Closing it only hides it; the tray keeps the app running.</summary>
+    private void ShowDashboard()
     {
-        var main = new MainWindow(_stats, _permissions);
-        MainWindow = main;
-        main.Show();
-        ShutdownMode = ShutdownMode.OnMainWindowClose;
+        if (_main is null)
+        {
+            var window = new MainWindow(_stats, _permissions);
+            window.Closing += (_, e) =>
+            {
+                if (_exiting) return;
+                e.Cancel = true;
+                window.Hide();
+            };
+            _main = window;
+        }
+        if (_main.WindowState == WindowState.Minimized) _main.WindowState = WindowState.Normal;
+        _main.Show();
+        _main.Activate();
+    }
+
+    /// <summary>Turns corrections on or off, from the tray menu. Same setting as the master switch in Settings.</summary>
+    private void ToggleCorrections()
+    {
+        _permissions.MasterEnabled = !_permissions.MasterEnabled;
+        _permissions.Commit();
+        _tray?.SetOn(_permissions.MasterEnabled);
+    }
+
+    private void ExitApp()
+    {
+        _exiting = true;
+        Shutdown();
     }
 
     /// <summary>
@@ -106,6 +144,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _tray?.Dispose();
+        _engine?.Dispose();
         _keyboardHook?.Dispose();
         _jobs.Writer.TryComplete();
         _shutdown.Cancel();

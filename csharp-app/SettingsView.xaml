@@ -20,7 +20,10 @@
         <StackPanel>
             <TextBlock Text="General" Style="{StaticResource Section}"/>
             <Border Style="{StaticResource Card}">
-                <CheckBox x:Name="MasterBox" Content="Turn corrections on" Click="Master_Click"/>
+                <StackPanel>
+                    <CheckBox x:Name="MasterBox" Content="Turn corrections on" Click="Master_Click"/>
+                    <CheckBox x:Name="StartupBox" Content="Start Typryt when Windows starts" Click="Startup_Click" Margin="0,6,0,0"/>
+                </StackPanel>
             </Border>
 
             <TextBlock Text="Corrections" Style="{StaticResource Section}"/>
