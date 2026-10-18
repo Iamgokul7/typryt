@@ -15,12 +15,40 @@ public sealed class AppPermission
     [JsonPropertyName("enabled")] public bool Enabled { get; set; }
 }
 
+/// <summary>How eager corrections are. Each level sets the least confidence a correction may have.</summary>
+public enum CorrectionLevel
+{
+    Low,
+    Medium,
+    High,
+    Extreme,
+}
+
+public static class CorrectionLevels
+{
+    // Low: only rule-based fixes (slang, apostrophes, abbreviations). Medium: clear misspellings
+    // (one-letter mistakes). High: also two-letter mistakes. Extreme: also Hunspell suggestions.
+    public static double ThresholdFor(CorrectionLevel level) => level switch
+    {
+        CorrectionLevel.Low => 0.95,
+        CorrectionLevel.Medium => 0.9,
+        CorrectionLevel.High => 0.6,
+        CorrectionLevel.Extreme => 0.5,
+        _ => 0.9,
+    };
+
+    public static CorrectionLevel Parse(string? value) =>
+        Enum.TryParse<CorrectionLevel>(value, ignoreCase: true, out var level) ? level : CorrectionLevel.Medium;
+}
+
 /// <summary>The contents of shared\config.json.</summary>
 public sealed class AppConfig
 {
     [JsonPropertyName("version")] public int Version { get; set; } = 1;
     [JsonPropertyName("first_run_done")] public bool FirstRunDone { get; set; }
     [JsonPropertyName("apps")] public List<AppPermission> Apps { get; set; } = new();
+    [JsonPropertyName("correction_level")] public string CorrectionLevel { get; set; } = "medium";
+    [JsonPropertyName("theme")] public string Theme { get; set; } = "dark";
 }
 
 /// <summary>
@@ -59,6 +87,23 @@ public sealed class PermissionManager
     }
 
     public bool FirstRunDone => _config.FirstRunDone;
+
+    /// <summary>The correction level the user chose. Read by the worker thread, changed from the UI.</summary>
+    public CorrectionLevel Level
+    {
+        get => CorrectionLevels.Parse(_config.CorrectionLevel);
+        set => _config.CorrectionLevel = value.ToString().ToLowerInvariant();
+    }
+
+    /// <summary>The least confidence a correction needs to be applied, from the chosen level.</summary>
+    public double Threshold => CorrectionLevels.ThresholdFor(Level);
+
+    /// <summary>"dark" or "light".</summary>
+    public string Theme
+    {
+        get => _config.Theme is "light" ? "light" : "dark";
+        set => _config.Theme = value is "light" ? "light" : "dark";
+    }
 
     public IReadOnlyList<AppPermission> Apps => _config.Apps;
 

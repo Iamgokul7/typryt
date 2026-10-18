@@ -1,0 +1,23 @@
+<Window x:Class="Typryt.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Typryt"
+        Title="Typryt"
+        Width="520" Height="620"
+        MinWidth="440" MinHeight="520"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}"
+        FontFamily="Segoe UI" FontSize="14">
+    <TabControl TabStripPlacement="Bottom" Background="Transparent" BorderThickness="0" Margin="8">
+        <TabItem Header="Home">
+            <local:HomeView x:Name="Home"/>
+        </TabItem>
+        <TabItem Header="Settings">
+            <TextBlock Margin="16" Text="Settings arrive in part 9b." Foreground="{DynamicResource TextSecondaryBrush}"/>
+        </TabItem>
+        <TabItem Header="Dictionary">
+            <TextBlock Margin="16" Text="Dictionary arrives in part 9c." Foreground="{DynamicResource TextSecondaryBrush}"/>
+        </TabItem>
+    </TabControl>
+</Window>

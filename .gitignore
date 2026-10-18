@@ -29,3 +29,8 @@ Thumbs.db
 shared/config.json
 shared/config.json.tmp
 shared/config.json.corrupt
+
+# Usage stats and correction history: contain the words the user typed (personal, not for git)
+shared/stats.json
+shared/stats.json.tmp
+shared/stats.json.corrupt

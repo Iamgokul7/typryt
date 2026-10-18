@@ -2,4 +2,13 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <!-- Colour brushes. ThemeManager replaces these values for the light theme.
+             Dark is the default. -->
+        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#1C1C1E"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#2C2C2E"/>
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F2F2F2"/>
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#A1A1A6"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#E8620A"/>
+    </Application.Resources>
 </Application>
