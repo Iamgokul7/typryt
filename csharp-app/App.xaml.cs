@@ -79,7 +79,7 @@ public partial class App : Application
         _worker = Task.Run(() => ProcessJobsAsync(_shutdown.Token));
 
         // The engine starts in the background, so the splash is not held up by it.
-        _engine = new EngineLauncher(EngineLauncher.FindEngineFolder() ?? string.Empty);
+        _engine = new EngineLauncher();
         Task.Run(() => _engine.StartIfNeeded());
 
         // The app lives in the tray. The dashboard opens only when asked for.

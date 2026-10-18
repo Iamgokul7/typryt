@@ -1,5 +1,7 @@
 """Typryt correction engine: FastAPI server on localhost."""
 
+import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,8 +15,20 @@ from learner import Learner
 from punctuation import fix_punctuation
 from spell_checker import SpellChecker
 
-# The user's learned words live in the shared folder, next to config.json.
-LEARNER_PATH = Path(__file__).resolve().parent.parent / "shared" / "personal_dict.json"
+def _data_folder() -> Path:
+    """The same rule as the app: the repository's shared folder when running from the project,
+    otherwise %APPDATA%\\Typryt for an installed copy."""
+    here = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve()
+    for folder in [here.parent, *here.parents]:
+        if (folder / "shared").is_dir() and (folder / "csharp-app").is_dir():
+            return folder / "shared"
+    base = Path(os.environ.get("APPDATA", Path.home())) / "Typryt"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+# The user's learned words live in the data folder, next to config.json.
+LEARNER_PATH = _data_folder() / "personal_dict.json"
 
 spell_checker: SpellChecker | None = None
 learner: Learner | None = None

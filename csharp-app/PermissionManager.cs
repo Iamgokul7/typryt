@@ -80,18 +80,8 @@ public sealed class PermissionManager
         _path = path;
     }
 
-    /// <summary>Default path: the shared folder of this repository, found by searching up from the app's folder.</summary>
-    public static string DefaultPath()
-    {
-        var folder = new DirectoryInfo(AppContext.BaseDirectory);
-        while (folder is not null)
-        {
-            var shared = Path.Combine(folder.FullName, "shared");
-            if (Directory.Exists(shared)) return Path.Combine(shared, ConfigFileName);
-            folder = folder.Parent;
-        }
-        return Path.Combine(AppContext.BaseDirectory, ConfigFileName);
-    }
+    /// <summary>Default path: config.json in the app's data folder (see AppPaths).</summary>
+    public static string DefaultPath() => Path.Combine(AppPaths.DataFolder(), ConfigFileName);
 
     public bool FirstRunDone => _config.FirstRunDone;
 
