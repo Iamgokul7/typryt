@@ -25,6 +25,7 @@ public partial class SettingsView : UserControl
         _permissions = permissions;
         _loading = true;
         MasterBox.IsChecked = permissions.MasterEnabled;
+        StartupBox.IsChecked = StartupRegistration.IsEnabled();
         AbbreviationsBox.IsChecked = permissions.AbbreviationsEnabled;
         CapitalizeBox.IsChecked = permissions.AutoCapitalizeEnabled;
         LearningBox.IsChecked = permissions.LearningEnabled;
@@ -38,6 +39,13 @@ public partial class SettingsView : UserControl
     }
 
     private void Master_Click(object sender, RoutedEventArgs e) => Change(p => p.MasterEnabled = MasterBox.IsChecked == true);
+
+    /// <summary>The startup entry lives in the Windows registry, not in config.json, so it is written directly.</summary>
+    private void Startup_Click(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        StartupRegistration.Set(StartupBox.IsChecked == true);
+    }
 
     private void Abbreviations_Click(object sender, RoutedEventArgs e) => Change(p => p.AbbreviationsEnabled = AbbreviationsBox.IsChecked == true);
 
