@@ -8,9 +8,6 @@ namespace Typryt;
 
 public partial class App : Application
 {
-    // Corrections run only in Notepad until app permissions exist (Phase 8).
-    private const string AllowedProcessName = "Notepad";
-
     // Medium correction level until the settings exist (Phase 9).
     private const double CorrectionThreshold = 0.9;
 
@@ -23,6 +20,10 @@ public partial class App : Application
     private KeyboardHook? _keyboardHook;
     private readonly WordDetector _wordDetector = new();
     private readonly ApiClient _api = new();
+
+    // Which apps corrections may run in. Read on the hook thread and the worker thread; it is only
+    // changed at startup, before the hook is installed.
+    private readonly PermissionManager _permissions = new(PermissionManager.DefaultPath());
 
     // Used only on the worker thread, except the toast, which is used only on the UI thread.
     private readonly UndoManager _undo = new();
@@ -56,12 +57,34 @@ public partial class App : Application
             return;
         }
 
+        _permissions.Load();
+        if (!_permissions.FirstRunDone)
+        {
+            RunFirstLaunch();
+        }
+
         _keyboardHook = new KeyboardHook();
         _keyboardHook.KeyPressed += OnKeyPressed;
         _keyboardHook.AltUPressed += OnAltUPressed;
         _keyboardHook.Install();
 
         _worker = Task.Run(() => ProcessJobsAsync(_shutdown.Token));
+    }
+
+    /// <summary>
+    /// First launch: finds the installed apps, lets the user choose where corrections may run,
+    /// and saves the choice. Runs before the keyboard hook is installed.
+    /// </summary>
+    private void RunFirstLaunch()
+    {
+        _permissions.MergeScanned(AppScanner.Scan());
+
+        var window = new FirstRunWindow(_permissions.Apps);
+        window.ShowDialog();
+
+        // Closing the window without Save still counts as the first run, with the defaults kept.
+        _permissions.MarkFirstRunDone();
+        _permissions.Save();
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -284,7 +307,8 @@ public partial class App : Application
         _jobs.Writer.TryWrite(new Job(null, ResetContext: false, 0, UndoRequest: true));
     }
 
-    private static bool IsAllowedWindowActive()
+    /// <summary>True when the window the user is typing in belongs to an app the user allowed.</summary>
+    private bool IsAllowedWindowActive()
     {
         IntPtr window = GetForegroundWindow();
         if (window == IntPtr.Zero) return false;
@@ -293,7 +317,7 @@ public partial class App : Application
         try
         {
             using var process = Process.GetProcessById((int)processId);
-            return string.Equals(process.ProcessName, AllowedProcessName, StringComparison.OrdinalIgnoreCase);
+            return _permissions.IsAllowed(process.ProcessName);
         }
         catch (ArgumentException)
         {
