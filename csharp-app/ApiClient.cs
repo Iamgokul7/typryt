@@ -84,7 +84,72 @@ public sealed class ApiClient : IDisposable
         }
     }
 
+    /// <summary>The engine's personal words and never-correct list, or null if the engine is unreachable.</summary>
+    public async Task<DictionarySnapshot?> GetDictionaryAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<DictionarySnapshot>("dictionary", JsonOptions, ct);
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+        catch (TaskCanceledException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Adds a personal word. Returns false if the engine refused it or cannot be reached.</summary>
+    public async Task<bool> AddPersonalWordAsync(string word, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync("dictionary/words", new WordRequest { Word = word }, JsonOptions, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+        catch (TaskCanceledException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Removes a personal word. Returns false if it was not found or the engine cannot be reached.</summary>
+    public Task<bool> RemovePersonalWordAsync(string word, CancellationToken ct) =>
+        DeleteAsync($"dictionary/words/{Uri.EscapeDataString(word)}", ct);
+
+    /// <summary>Unblocks a word the user undid. Returns false if it was not found or the engine cannot be reached.</summary>
+    public Task<bool> RemoveNeverCorrectAsync(string word, CancellationToken ct) =>
+        DeleteAsync($"dictionary/never-correct/{Uri.EscapeDataString(word)}", ct);
+
+    private async Task<bool> DeleteAsync(string path, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await _http.DeleteAsync(path, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+        catch (TaskCanceledException)
+        {
+            return false;
+        }
+    }
+
     public void Dispose() => _http.Dispose();
+
+    private sealed class WordRequest
+    {
+        [JsonPropertyName("word")] public string Word { get; set; } = "";
+    }
 
     private sealed class CorrectRequest
     {
@@ -114,6 +179,13 @@ public sealed class CorrectResponse
     [JsonPropertyName("confidence")] public double Confidence { get; set; }
     [JsonPropertyName("comma_after_previous")] public bool CommaAfterPrevious { get; set; }
     [JsonPropertyName("previous_correction")] public PreviousCorrection? PreviousCorrection { get; set; }
+}
+
+/// <summary>Response from GET /dictionary: the user's learned words and the words they undid.</summary>
+public sealed class DictionarySnapshot
+{
+    [JsonPropertyName("personal_words")] public List<string> PersonalWords { get; set; } = new();
+    [JsonPropertyName("never_correct")] public List<string> NeverCorrect { get; set; } = new();
 }
 
 /// <summary>An earlier word on screen that the new word settled (its to it's, were to we're).</summary>
