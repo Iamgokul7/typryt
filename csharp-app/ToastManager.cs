@@ -32,8 +32,18 @@ public sealed class ToastManager
     {
         Hide();
         _onUndo = onUndo;
+        Present(BuildWindow($"{original} → {corrected}", showUndo: true));
+    }
 
-        var window = BuildWindow(original, corrected);
+    /// <summary>Shows a short message with no Undo button, for example when an undo is refused.</summary>
+    public void ShowMessage(string message)
+    {
+        Hide();
+        Present(BuildWindow(message, showUndo: false));
+    }
+
+    private void Present(Window window)
+    {
         _window = window;
         window.Show();
         // The width is known only after layout, so position the toast after it has been laid out.
@@ -62,11 +72,11 @@ public sealed class ToastManager
         window.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 
-    private Window BuildWindow(string original, string corrected)
+    private Window BuildWindow(string message, bool showUndo)
     {
         var text = new TextBlock
         {
-            Text = $"{original} → {corrected}",
+            Text = message,
             Foreground = new SolidColorBrush(Foreground),
             FontFamily = new FontFamily("Segoe UI"),
             FontSize = 14,
@@ -110,7 +120,7 @@ public sealed class ToastManager
 
         var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         row.Children.Add(text);
-        row.Children.Add(undo);
+        if (showUndo) row.Children.Add(undo);
         row.Children.Add(close);
 
         var card = new Border

@@ -235,12 +235,34 @@ public partial class App : Application
     /// <summary>Restores the word a correction replaced, if the undo window is still open and nothing was typed since.</summary>
     private void UndoLastCorrection()
     {
-        var correction = _undo.TryUndo(Volatile.Read(ref _keySequence));
-        HideToast();
-        if (correction is null) return;
+        var attempt = _undo.Attempt(Volatile.Read(ref _keySequence));
+        var correction = attempt.Correction;
+        if (correction is null)
+        {
+            // Say why the undo was refused. With nothing to undo there is nothing to say.
+            switch (attempt.Refusal)
+            {
+                case UndoManager.UndoRefusal.TooLate:
+                    ShowMessage("Too late to undo");
+                    break;
+                case UndoManager.UndoRefusal.TypedSince:
+                    ShowMessage("Can't undo: you typed after the correction");
+                    break;
+                default:
+                    HideToast();
+                    break;
+            }
+            return;
+        }
 
+        HideToast();
         TextReplacer.Replace(correction.Corrected.Length + correction.Trail.Length, correction.Original + correction.Trail);
         _lastWord = new ScreenWord(correction.Original, correction.Trail);
+    }
+
+    private void ShowMessage(string message)
+    {
+        Dispatcher.Invoke(() => _toast.ShowMessage(message));
     }
 
     private void ShowToast(string original, string corrected)
