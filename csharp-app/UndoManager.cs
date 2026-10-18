@@ -35,20 +35,47 @@ public sealed class UndoManager
         _last = new Correction(original, corrected, trail, keySequence, _clock());
     }
 
+    /// <summary>Why an undo was refused. None means the undo is allowed.</summary>
+    public enum UndoRefusal
+    {
+        None,
+        NothingToUndo,
+        TooLate,
+        TypedSince,
+    }
+
+    /// <summary>The outcome of an undo request: the correction to undo, or the reason it was refused.</summary>
+    public sealed record UndoAttempt(Correction? Correction, UndoRefusal Refusal);
+
     /// <summary>Returns the correction to undo, or null if undo is not allowed now.</summary>
     /// <param name="currentKeySequence">The app's key counter right now.</param>
-    public Correction? TryUndo(int currentKeySequence)
+    public Correction? TryUndo(int currentKeySequence) => Attempt(currentKeySequence).Correction;
+
+    /// <summary>
+    /// Decides an undo request. A refused request forgets the pending correction, so the same
+    /// refusal is not reported again for a later Alt+U press.
+    /// </summary>
+    /// <param name="currentKeySequence">The app's key counter right now.</param>
+    public UndoAttempt Attempt(int currentKeySequence)
     {
         var last = _last;
-        if (last is null) return null;
+        if (last is null) return new UndoAttempt(null, UndoRefusal.NothingToUndo);
 
-        bool withinWindow = _clock() - last.AppliedAt <= UndoWindow;
-        bool nothingTypedSince = currentKeySequence == last.KeySequence;
-        if (!withinWindow || !nothingTypedSince) return null;
+        if (_clock() - last.AppliedAt > UndoWindow)
+        {
+            _last = null;
+            return new UndoAttempt(null, UndoRefusal.TooLate);
+        }
+
+        if (currentKeySequence != last.KeySequence)
+        {
+            _last = null;
+            return new UndoAttempt(null, UndoRefusal.TypedSince);
+        }
 
         _last = null;
         _undoneWords.Add(last.Original);
-        return last;
+        return new UndoAttempt(last, UndoRefusal.None);
     }
 
     /// <summary>Forgets the pending correction, for example when the user moves to another window.</summary>
