@@ -14,7 +14,7 @@
             <local:HomeView x:Name="Home"/>
         </TabItem>
         <TabItem Header="Settings">
-            <TextBlock Margin="16" Text="Settings arrive in part 9b." Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <local:SettingsView x:Name="Settings"/>
         </TabItem>
         <TabItem Header="Dictionary">
             <TextBlock Margin="16" Text="Dictionary arrives in part 9c." Foreground="{DynamicResource TextSecondaryBrush}"/>

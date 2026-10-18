@@ -67,6 +67,8 @@ public partial class App : Application
         _keyboardHook.KeyPressed += OnKeyPressed;
         _keyboardHook.AltUPressed += OnAltUPressed;
         _keyboardHook.Install();
+        _keyboardHook.UndoVirtualKey = UndoKeyFor(_permissions.UndoLetter);
+        _permissions.Changed += ApplySettings;
 
         _worker = Task.Run(() => ProcessJobsAsync(_shutdown.Token));
 
@@ -120,7 +122,7 @@ public partial class App : Application
     {
         int sequence = Interlocked.Increment(ref _keySequence);
 
-        bool allowed = IsAllowedWindowActive();
+        bool allowed = _permissions.MasterEnabled && IsAllowedWindowActive();
         if (allowed != _lastWindowAllowed)
         {
             // Focus moved in or out of Notepad: the engine's context no longer matches the text.
@@ -147,10 +149,23 @@ public partial class App : Application
     /// <summary>Runs on the hook thread. Takes Alt+U only in Notepad, and queues the undo.</summary>
     private bool OnAltUPressed()
     {
-        if (!IsAllowedWindowActive()) return false;
+        if (!_permissions.MasterEnabled || !IsAllowedWindowActive()) return false;
         _jobs.Writer.TryWrite(new Job(null, ResetContext: false, 0, UndoRequest: true));
         return true;
     }
+
+    /// <summary>Applies the saved settings that the hook, toast, and theme use. Called on the UI thread after a change.</summary>
+    private void ApplySettings()
+    {
+        if (_keyboardHook is not null)
+        {
+            _keyboardHook.UndoVirtualKey = UndoKeyFor(_permissions.UndoLetter);
+        }
+        ThemeManager.Apply(_permissions.Theme);
+    }
+
+    /// <summary>The virtual-key code of a letter. For A to Z it equals the uppercase character code.</summary>
+    private static int UndoKeyFor(char letter) => char.ToUpperInvariant(letter);
 
     private static bool EndsContext(char c) =>
         !(char.IsLetterOrDigit(c) || c == '\'' || c is ' ' or ',' or '.' or '!' or '?' or ';' or ':');
@@ -205,7 +220,13 @@ public partial class App : Application
             return;
         }
 
-        var response = await _api.CorrectAsync(word.Text, SessionId, abbreviationsEnabled: true, ct);
+        var response = await _api.CorrectAsync(
+            word.Text,
+            SessionId,
+            _permissions.AbbreviationsEnabled,
+            ct,
+            _permissions.LearningEnabled,
+            _permissions.AutoCapitalizeEnabled);
         if (response is null)
         {
             _lastWord = null;
@@ -292,7 +313,10 @@ public partial class App : Application
         _stats.RecordUndo(correction.Original, correction.Corrected);
 
         // The engine remembers the undo, so this word is never corrected again (also after a restart).
-        await _api.LearnUndoAsync(correction.Original, ct);
+        if (_permissions.LearningEnabled)
+        {
+            await _api.LearnUndoAsync(correction.Original, ct);
+        }
     }
 
     private void ShowMessage(string message)
@@ -302,7 +326,12 @@ public partial class App : Application
 
     private void ShowToast(string original, string corrected)
     {
-        Dispatcher.Invoke(() => _toast.Show(original, corrected, RequestUndo));
+        Dispatcher.Invoke(() =>
+        {
+            _toast.DisplaySeconds = _permissions.ToastSeconds;
+            _toast.Corner = _permissions.ToastCorner;
+            _toast.Show(original, corrected, RequestUndo);
+        });
     }
 
     private void HideToast()

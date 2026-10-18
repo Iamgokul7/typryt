@@ -49,6 +49,13 @@ public sealed class AppConfig
     [JsonPropertyName("apps")] public List<AppPermission> Apps { get; set; } = new();
     [JsonPropertyName("correction_level")] public string CorrectionLevel { get; set; } = "medium";
     [JsonPropertyName("theme")] public string Theme { get; set; } = "dark";
+    [JsonPropertyName("master_enabled")] public bool MasterEnabled { get; set; } = true;
+    [JsonPropertyName("abbreviations_enabled")] public bool AbbreviationsEnabled { get; set; } = true;
+    [JsonPropertyName("auto_capitalize_enabled")] public bool AutoCapitalizeEnabled { get; set; } = true;
+    [JsonPropertyName("learning_enabled")] public bool LearningEnabled { get; set; } = true;
+    [JsonPropertyName("undo_letter")] public string UndoLetter { get; set; } = "U";
+    [JsonPropertyName("toast_seconds")] public int ToastSeconds { get; set; } = 3;
+    [JsonPropertyName("toast_corner")] public string ToastCorner { get; set; } = "bottom-right";
 }
 
 /// <summary>
@@ -107,6 +114,54 @@ public sealed class PermissionManager
 
     public IReadOnlyList<AppPermission> Apps => _config.Apps;
 
+    /// <summary>Raised by Commit after the settings are saved. Raised on the thread that called Commit (the UI).</summary>
+    public event Action? Changed;
+
+    /// <summary>Turns all corrections on or off.</summary>
+    public bool MasterEnabled { get => _config.MasterEnabled; set => _config.MasterEnabled = value; }
+
+    public bool AbbreviationsEnabled { get => _config.AbbreviationsEnabled; set => _config.AbbreviationsEnabled = value; }
+
+    public bool AutoCapitalizeEnabled { get => _config.AutoCapitalizeEnabled; set => _config.AutoCapitalizeEnabled = value; }
+
+    /// <summary>When off, unknown words are not counted and undos are not remembered by the engine.</summary>
+    public bool LearningEnabled { get => _config.LearningEnabled; set => _config.LearningEnabled = value; }
+
+    /// <summary>The letter pressed with Alt to undo. Only A to Z are accepted; anything else keeps U.</summary>
+    public char UndoLetter
+    {
+        get => _config.UndoLetter.Length == 1 ? _config.UndoLetter[0] : 'U';
+        set
+        {
+            char upper = char.ToUpperInvariant(value);
+            if (char.IsAsciiLetter(upper)) _config.UndoLetter = upper.ToString();
+        }
+    }
+
+    /// <summary>How long the toast stays, in seconds (1 to 5).</summary>
+    public int ToastSeconds
+    {
+        get => Math.Clamp(_config.ToastSeconds, 1, 5);
+        set => _config.ToastSeconds = Math.Clamp(value, 1, 5);
+    }
+
+    /// <summary>"top-left", "top-right", "bottom-left", or "bottom-right".</summary>
+    public string ToastCorner
+    {
+        get => IsCorner(_config.ToastCorner) ? _config.ToastCorner : "bottom-right";
+        set => _config.ToastCorner = IsCorner(value) ? value : "bottom-right";
+    }
+
+    public static bool IsCorner(string? value) =>
+        value is "top-left" or "top-right" or "bottom-left" or "bottom-right";
+
+    /// <summary>Saves the settings and tells the rest of the app they changed.</summary>
+    public void Commit()
+    {
+        Save();
+        Changed?.Invoke();
+    }
+
     /// <summary>Loads the config. A missing or unreadable file starts from the defaults.</summary>
     public void Load()
     {
@@ -121,6 +176,10 @@ public sealed class PermissionManager
             _config = loaded ?? new AppConfig();
             _config.Apps ??= new List<AppPermission>();
             _config.Apps.RemoveAll(a => string.IsNullOrWhiteSpace(a.Process));
+            // Keep hand-edited values within the allowed ranges.
+            _config.ToastSeconds = Math.Clamp(_config.ToastSeconds, 1, 5);
+            if (!IsCorner(_config.ToastCorner)) _config.ToastCorner = "bottom-right";
+            if (_config.UndoLetter.Length != 1 || !char.IsAsciiLetter(_config.UndoLetter[0])) _config.UndoLetter = "U";
         }
         catch (JsonException)
         {

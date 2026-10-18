@@ -15,7 +15,11 @@ namespace Typryt;
 /// </summary>
 public sealed class ToastManager
 {
-    private const int DisplayMilliseconds = 3000;
+    /// <summary>How long the toast stays, in seconds. Set from the settings before each Show.</summary>
+    public int DisplaySeconds { get; set; } = 3;
+
+    /// <summary>"top-left", "top-right", "bottom-left", or "bottom-right". Set from the settings.</summary>
+    public string Corner { get; set; } = "bottom-right";
     private const int FadeMilliseconds = 180;
     private const int MarginPixels = 16;
 
@@ -51,7 +55,7 @@ public sealed class ToastManager
         Position(window);
         FadeTo(window, 1.0);
 
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DisplayMilliseconds) };
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(DisplaySeconds) };
         _timer.Tick += (_, _) => Hide();
         _timer.Start();
     }
@@ -148,11 +152,13 @@ public sealed class ToastManager
         return window;
     }
 
-    private static void Position(Window window)
+    private void Position(Window window)
     {
         var area = SystemParameters.WorkArea;
-        window.Left = area.Right - window.ActualWidth - MarginPixels;
-        window.Top = area.Bottom - window.ActualHeight - MarginPixels;
+        bool top = Corner.StartsWith("top", StringComparison.Ordinal);
+        bool right = Corner.EndsWith("right", StringComparison.Ordinal);
+        window.Left = right ? area.Right - window.ActualWidth - MarginPixels : area.Left + MarginPixels;
+        window.Top = top ? area.Top + MarginPixels : area.Bottom - window.ActualHeight - MarginPixels;
     }
 
     private static void FadeTo(Window window, double opacity)
