@@ -1,0 +1,103 @@
+<UserControl x:Class="Typryt.HomeView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{DynamicResource TextPrimaryBrush}"
+             FontFamily="Segoe UI" FontSize="14">
+    <UserControl.Resources>
+        <Style x:Key="StatCard" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+        </Style>
+        <!-- A plain template, so the selected segment shows the accent colour instead of the system one. -->
+        <Style x:Key="Segment" TargetType="ToggleButton">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Body" CornerRadius="8" Padding="14,6"
+                                Background="{DynamicResource SurfaceBrush}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Body" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Counters -->
+        <Grid Grid.Row="0" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Style="{StaticResource StatCard}">
+                <StackPanel>
+                    <TextBlock x:Name="FixedCount" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Text="0"/>
+                    <TextBlock Text="Words Fixed" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="1" Style="{StaticResource StatCard}">
+                <StackPanel>
+                    <TextBlock x:Name="TodayCount" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Text="0"/>
+                    <TextBlock Text="Today" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="2" Style="{StaticResource StatCard}" Margin="0">
+                <StackPanel>
+                    <TextBlock x:Name="UndoneCount" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Text="0"/>
+                    <TextBlock Text="Undone" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Recent corrections -->
+        <TextBlock Grid.Row="1" Text="Recent corrections" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" CornerRadius="10" Padding="4">
+            <ListBox x:Name="RecentList" Background="Transparent" BorderThickness="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="8,5">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding Display}" TextWrapping="Wrap"/>
+                            <TextBlock Grid.Column="1" Text="{Binding When}" Margin="12,0,0,0"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+
+        <!-- Correction level -->
+        <TextBlock Grid.Row="3" Text="Correction level" FontWeight="SemiBold" Margin="0,14,0,6"/>
+        <StackPanel Grid.Row="4" Orientation="Horizontal">
+            <ToggleButton x:Name="LevelLow" Tag="Low" Content="Low" Style="{StaticResource Segment}" Click="Level_Click"/>
+            <ToggleButton x:Name="LevelMedium" Tag="Medium" Content="Medium" Style="{StaticResource Segment}" Click="Level_Click" Margin="6,0,0,0"/>
+            <ToggleButton x:Name="LevelHigh" Tag="High" Content="High" Style="{StaticResource Segment}" Click="Level_Click" Margin="6,0,0,0"/>
+            <ToggleButton x:Name="LevelExtreme" Tag="Extreme" Content="Extreme" Style="{StaticResource Segment}" Click="Level_Click" Margin="6,0,0,0"/>
+        </StackPanel>
+    </Grid>
+</UserControl>

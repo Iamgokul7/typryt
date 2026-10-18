@@ -8,9 +8,6 @@ namespace Typryt;
 
 public partial class App : Application
 {
-    // Medium correction level until the settings exist (Phase 9).
-    private const double CorrectionThreshold = 0.9;
-
     // One engine session for the whole app for now; Phase 9 keys it per window.
     private const string SessionId = "default";
 
@@ -24,6 +21,9 @@ public partial class App : Application
     // Which apps corrections may run in. Read on the hook thread and the worker thread; it is only
     // changed at startup, before the hook is installed.
     private readonly PermissionManager _permissions = new(PermissionManager.DefaultPath());
+
+    // Counts corrections and undos for the Home tab. Locks internally, so any thread may use it.
+    private readonly StatsStore _stats = new(StatsStore.DefaultPath());
 
     // Used only on the worker thread, except the toast, which is used only on the UI thread.
     private readonly UndoManager _undo = new();
@@ -69,6 +69,13 @@ public partial class App : Application
         _keyboardHook.Install();
 
         _worker = Task.Run(() => ProcessJobsAsync(_shutdown.Token));
+
+        // The main window opens at startup for now. The tray icon that reopens it is Phase 11.
+        ThemeManager.Apply(_permissions.Theme);
+        var main = new MainWindow(_stats, _permissions);
+        MainWindow = main;
+        main.Show();
+        ShutdownMode = ShutdownMode.OnMainWindowClose;
     }
 
     /// <summary>
@@ -212,7 +219,7 @@ public partial class App : Application
             return;
         }
 
-        string corrected = response.Confidence >= CorrectionThreshold ? response.Correction : word.Text;
+        string corrected = response.Confidence >= _permissions.Threshold ? response.Correction : word.Text;
 
         string? revisedPrevious = null;
         var previous = _lastWord;
@@ -251,6 +258,7 @@ public partial class App : Application
         if (corrected != word.Text)
         {
             _undo.Record(word.Text, corrected, word.Trail, keySequence);
+            _stats.RecordCorrection(word.Text, corrected);
             ShowToast(word.Text, corrected);
         }
     }
@@ -281,6 +289,7 @@ public partial class App : Application
         HideToast();
         TextReplacer.Replace(correction.Corrected.Length + correction.Trail.Length, correction.Original + correction.Trail);
         _lastWord = new ScreenWord(correction.Original, correction.Trail);
+        _stats.RecordUndo(correction.Original, correction.Corrected);
 
         // The engine remembers the undo, so this word is never corrected again (also after a restart).
         await _api.LearnUndoAsync(correction.Original, ct);
