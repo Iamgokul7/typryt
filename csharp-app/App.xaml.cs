@@ -516,7 +516,11 @@ public partial class App : Application
             result = TextReplacer.ReplaceBeforeCaret(word.Text + word.Trail, corrected + word.Trail, keyDownCount: _jobKeyDowns);
         }
 
-        if (result != ReplaceResult.Done)
+        // Notepad corrected the word itself first: the screen already shows the corrected form, so the tail and
+        // the last word follow the screen, but nothing is counted, shown, or recorded for undo.
+        bool alreadyCorrect = result == ReplaceResult.AlreadyCorrect;
+
+        if (result != ReplaceResult.Done && !alreadyCorrect)
         {
             // Nothing was changed. Forget the earlier word, so no later revision uses it.
             Log.Write("replace", $"not applied ({result}) for a word of {word.Text.Length} letters");
@@ -537,7 +541,7 @@ public partial class App : Application
 
         _lastWord = new ScreenWord(corrected, word.Trail);
 
-        if (corrected != word.Text)
+        if (corrected != word.Text && !alreadyCorrect)
         {
             _undo.Record(word.Text, corrected, word.Trail, keySequence);
             _stats.RecordCorrection(word.Text, corrected);

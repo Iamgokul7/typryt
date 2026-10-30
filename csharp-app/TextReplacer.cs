@@ -17,6 +17,9 @@ public enum ReplaceResult
 
     /// <summary>The keys could not be sent.</summary>
     Failed,
+
+    /// <summary>The text before the cursor already had the new form (the app, Notepad for one, changed it first), so nothing was changed.</summary>
+    AlreadyCorrect,
 }
 
 /// <summary>
@@ -65,48 +68,85 @@ public static class TextReplacer
         return KeyboardHook.HoldKeysWhile(() => ReplaceCore(expectedBefore, newText, requireReadable, batch, keyDownCount));
     }
 
-    // Right before keys are sent: no key was typed since the word was finished, and no modifier key is down
-    // (a Shift that is down would turn the replacement's letters into capitals). Alt is waited for by the undo.
-    private static bool SafeToSend(int keyDownCount, bool requireReadable) =>
-        (keyDownCount < 0 || KeyboardHook.RealKeyDownCount == keyDownCount)
-        && !KeyboardHook.ModifierKeyDown(includeAlt: !requireReadable);
+    // Right before keys are sent: no modifier key is down (a Shift that is down would turn the replacement's
+    // letters into capitals). Alt is waited for by the undo. Keys typed from the start of the hold are held,
+    // so they cannot reach the text.
+    private static bool ModifiersAreUp(bool requireReadable) => !KeyboardHook.ModifierKeyDown(includeAlt: !requireReadable);
 
     private static ReplaceResult ReplaceCore(string expectedBefore, string newText, bool requireReadable, bool batch, int keyDownCount)
     {
         if (expectedBefore.Length == 0) return ReplaceResult.Failed;
 
-        string? before = ReadSettledBeforeCaret(expectedBefore, readSlowApps: requireReadable);
-        if (before is not null && before != expectedBefore)
+        // The hold is already on, so keys typed from now on cannot reach the text. A key typed before it
+        // started has, and the replacement is then cancelled.
+        if (keyDownCount >= 0 && KeyboardHook.RealKeyDownCount != keyDownCount)
         {
-            Log.Write("replace", $"skipped: the {before.Length} characters before the caret differ from the {expectedBefore.Length} that were typed");
+            Log.Write("replace", "cancelled: a key was typed before the replacement started; the text stays as typed");
             return ReplaceResult.TextChanged;
         }
-        if (before is null && requireReadable && !IsBrowserInFront())
+
+        bool verifyAfter = false;
+        if (!requireReadable && IsProcessInFront(NoReadProcesses))
         {
-            Log.Write("replace", $"refused: text before caret not readable, nothing changed ({expectedBefore.Length} characters)");
-            return ReplaceResult.TextChanged;
+            // Notepad can change the word itself (its own autocorrect) before this runs, so the Backspaces are
+            // counted from the text that is really there, never from the typed keys.
+            var plan = PlanFromRealText(expectedBefore, newText);
+            if (plan.Result is { } early) return early;
+            expectedBefore = plan.RealBefore;
+            verifyAfter = true;
         }
-        Log.Write("replace", before is null
-            ? $"text before caret not readable, replacing {expectedBefore.Length} characters without a check"
-            : $"text before caret verified ({expectedBefore.Length} characters)");
+        else
+        {
+            string? before = ReadSettledBeforeCaret(expectedBefore, readSlowApps: requireReadable);
+            if (before is not null && before != expectedBefore)
+            {
+                Log.Write("replace", $"skipped: the {before.Length} characters before the caret differ from the {expectedBefore.Length} that were typed");
+                return ReplaceResult.TextChanged;
+            }
+            if (before is null && requireReadable && !IsBrowserInFront())
+            {
+                Log.Write("replace", $"refused: text before caret not readable, nothing changed ({expectedBefore.Length} characters)");
+                return ReplaceResult.TextChanged;
+            }
+            Log.Write("replace", before is null
+                ? $"text before caret not readable, replacing {expectedBefore.Length} characters without a check"
+                : $"text before caret verified ({expectedBefore.Length} characters)");
+        }
 
         WaitForAltRelease();
         bool capsLock = (GetKeyState(VK_CAPITAL) & 1) != 0;
         timeBeginPeriod(1);
 
-        // Backspace removes one character before the caret each time, then the new text is typed.
-        // Only the part that differs is replaced: the characters both texts share at the start stay.
-        // The caret is at the end, so the rest is deleted from the end and typed again.
+        if (!ModifiersAreUp(requireReadable))
+        {
+            Log.Write("replace", "cancelled: a modifier key is down; the text stays as typed");
+            return ReplaceResult.TextChanged;
+        }
+
+        if (!SendEdit(expectedBefore, newText, capsLock, batch)) return ReplaceResult.Failed;
+
+        Log.Write("replace", $"replaced {expectedBefore.Length} characters with {newText.Length}");
+        if (verifyAfter) RepairIfChanged(newText, capsLock);
+        return ReplaceResult.Done;
+    }
+
+    /// <summary>
+    /// Turns the text before the caret from "before" into "after": Backspace removes one character each time, then the
+    /// new text is typed. Only the part that differs is replaced: the characters both texts share at the start stay.
+    /// The caret is at the end, so the rest is deleted from the end and typed again.
+    /// </summary>
+    private static bool SendEdit(string before, string after, bool capsLock, bool batch)
+    {
         int shared = 0;
-        while (shared < expectedBefore.Length && shared < newText.Length && expectedBefore[shared] == newText[shared]) shared++;
+        while (shared < before.Length && shared < after.Length && before[shared] == after[shared]) shared++;
 
         // Each group is one key (its press and release) or one Unicode character; each is sent in one call.
         var groups = new List<List<INPUT>>();
-        for (int i = shared; i < expectedBefore.Length; i++)
+        for (int i = shared; i < before.Length; i++)
         {
             groups.Add(new List<INPUT> { MakeKey(VK_BACK, 0), MakeKey(VK_BACK, KEYEVENTF_KEYUP) });
         }
-        foreach (char c in newText.AsSpan(shared))
+        foreach (char c in after.AsSpan(shared))
         {
             var keys = new List<INPUT>(4);
             if (TryKeyPresses(c, capsLock, keys))
@@ -120,30 +160,144 @@ public static class TextReplacer
             }
         }
 
-        if (!SafeToSend(keyDownCount, requireReadable))
-        {
-            Log.Write("replace", "cancelled: a key was typed meanwhile or a modifier key is down; the text stays as typed");
-            return ReplaceResult.TextChanged;
-        }
-
         // Browsers take a whole batch of keys at once (sending it that way is what keeps them up with fast
         // typing). Other apps, such as Notepad, drop keys that come in a burst (89 of 100 replacements came out
         // wrong when measured), so each key is paced.
-        if (batch)
+        if (batch) return Send(groups.SelectMany(g => g).ToList());
+        foreach (var group in groups)
         {
-            if (!Send(groups.SelectMany(g => g).ToList())) return ReplaceResult.Failed;
+            if (!Send(group)) return false;
+            Thread.Sleep(KeyStepMilliseconds);
         }
-        else
+        return true;
+    }
+
+    // How long Notepad is given to finish its own change to the word before the result is checked.
+    private const int RepairSettleMilliseconds = 30;
+
+    /// <summary>
+    /// Notepad only. Notepad's own autocorrect can change the word in the short time between reading it and typing
+    /// over it, which leaves the wrong characters deleted. The text is read again; when it is not the intended text
+    /// but is close to it, it is replaced once more from what is really there.
+    /// </summary>
+    private static void RepairIfChanged(string intended, bool capsLock)
+    {
+        Thread.Sleep(RepairSettleMilliseconds);
+        string? tail = ReadWindow(intended.Length + RealTextSlack, readSlowApps: true, allowShort: true);
+        if (tail is null || tail.EndsWith(intended, StringComparison.Ordinal)) return;
+
+        string? candidate = ClosestEnding(tail, intended, out int _);
+        if (candidate is null || !ModifiersAreUp(requireReadable: false)) return;
+
+        Log.Write("replace", $"text changed under the replacement; repairing {candidate.Length} characters from what is really there");
+        SendEdit(candidate, intended, capsLock, batch: false);
+    }
+
+    /// <summary>The ending of tail, starting at a word boundary, that is closest to text (within MaxEditsFromTyped edits), or null.</summary>
+    private static string? ClosestEnding(string tail, string text, out int distanceFound)
+    {
+        string? best = null;
+        int bestDistance = MaxEditsFromTyped + 1;
+        int lowest = Math.Max(1, text.Length - MaxEditsFromTyped);
+        int highest = Math.Min(tail.Length, text.Length + MaxEditsFromTyped);
+        for (int length = lowest; length <= highest; length++)
         {
-            foreach (var group in groups)
+            bool atBoundary = length == tail.Length || !char.IsLetterOrDigit(tail[tail.Length - length - 1]);
+            if (!atBoundary) continue;
+            string candidate = tail[^length..];
+            int distance = EditDistance(candidate, text);
+            if (distance < bestDistance)
             {
-                if (!Send(group)) return ReplaceResult.Failed;
-                Thread.Sleep(KeyStepMilliseconds);
+                best = candidate;
+                bestDistance = distance;
             }
         }
+        distanceFound = bestDistance;
+        return best;
+    }
 
-        Log.Write("replace", $"replaced {expectedBefore.Length} characters with {newText.Length}");
-        return ReplaceResult.Done;
+    private readonly record struct RealTextPlan(ReplaceResult? Result, string RealBefore);
+
+    // How many characters beyond the typed ones are read, so that a word Notepad made longer is still seen whole.
+    private const int RealTextSlack = 12;
+
+    // The largest number of edits between the typed word and what Notepad made of it for the text to count as
+    // the same word. Anything further apart is left alone: it is probably not this word.
+    private const int MaxEditsFromTyped = 3;
+
+    /// <summary>
+    /// Notepad only. Reads the text really before the caret and decides what to replace:
+    /// as typed, then the typed text is replaced; already the new form (Notepad corrected it), nothing is done;
+    /// a different form close to what was typed, then that text is replaced; unreadable or unrelated, nothing is done.
+    /// </summary>
+    private static RealTextPlan PlanFromRealText(string typed, string target)
+    {
+        var clock = Stopwatch.StartNew();
+        string? tail = ReadTailSettled(typed, target, typed.Length + RealTextSlack);
+        long readMilliseconds = clock.ElapsedMilliseconds;
+
+        if (tail is null)
+        {
+            Log.Write("replace", $"notepad read {readMilliseconds} ms: text not readable, nothing changed");
+            return new RealTextPlan(ReplaceResult.TextChanged, typed);
+        }
+        if (tail.EndsWith(typed, StringComparison.Ordinal))
+        {
+            Log.Write("replace", $"notepad read {readMilliseconds} ms: text is as typed");
+            return new RealTextPlan(null, typed);
+        }
+        if (tail.EndsWith(target, StringComparison.Ordinal))
+        {
+            Log.Write("replace", $"notepad read {readMilliseconds} ms: text already has the corrected form, nothing changed");
+            return new RealTextPlan(ReplaceResult.AlreadyCorrect, typed);
+        }
+
+        // Something else is there: the closest ending of the real text that starts at a word boundary.
+        string? best = ClosestEnding(tail, typed, out int _);
+
+        if (best is null)
+        {
+            Log.Write("replace", $"notepad read {readMilliseconds} ms: text differs from what was typed, nothing changed");
+            return new RealTextPlan(ReplaceResult.TextChanged, typed);
+        }
+        Log.Write("replace", $"notepad read {readMilliseconds} ms: text was changed to something else ({best.Length} characters), replacing what is there");
+        return new RealTextPlan(null, best);
+    }
+
+    /// <summary>The text before the caret once it ends with typed or target, or the last reading after the settle time.</summary>
+    private static string? ReadTailSettled(string typed, string target, int count)
+    {
+        var clock = Stopwatch.StartNew();
+        while (true)
+        {
+            string? tail = ReadWindow(count, readSlowApps: true, allowShort: true);
+            if (tail is null
+                || tail.EndsWith(typed, StringComparison.Ordinal)
+                || tail.EndsWith(target, StringComparison.Ordinal)
+                || clock.ElapsedMilliseconds >= VerifySettleMilliseconds)
+            {
+                return tail;
+            }
+            Thread.Sleep(VerifyPollMilliseconds);
+        }
+    }
+
+    private static int EditDistance(string a, string b)
+    {
+        var previous = new int[b.Length + 1];
+        var current = new int[b.Length + 1];
+        for (int j = 0; j <= b.Length; j++) previous[j] = j;
+        for (int i = 1; i <= a.Length; i++)
+        {
+            current[0] = i;
+            for (int j = 1; j <= b.Length; j++)
+            {
+                int cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                current[j] = Math.Min(Math.Min(current[j - 1] + 1, previous[j] + 1), previous[j - 1] + cost);
+            }
+            (previous, current) = (current, previous);
+        }
+        return previous[b.Length];
     }
 
     /// <summary>
@@ -192,11 +346,17 @@ public static class TextReplacer
     /// The last count characters before the cursor, or null when the focused app does not expose
     /// its text. Reads through UI Automation; never throws.
     /// </summary>
-    public static string? TextBeforeCaret(int count, bool readSlowApps = false)
+    public static string? TextBeforeCaret(int count, bool readSlowApps = false) => ReadWindow(count, readSlowApps, allowShort: false);
+
+    /// <summary>
+    /// The text before the caret, at most count characters. With allowShort, fewer characters are returned when the
+    /// text is shorter (near the start of a document); otherwise null is returned then.
+    /// </summary>
+    private static string? ReadWindow(int count, bool readSlowApps, bool allowShort)
     {
         // Browsers answer these reads slowly and fall behind the typing (seconds in Chrome), so their
-        // text is not read; the typed characters are then replaced as typed. Notepad is skipped while
-        // typing (its read is slow), but a check after a correction can read it (readSlowApps).
+        // text is not read; the typed characters are then replaced as typed. Notepad is skipped for plain
+        // checks (its read takes about 85 ms), but replacements and the check after a correction read it (readSlowApps).
         if (IsBrowserInFront() || (!readSlowApps && IsProcessInFront(NoReadProcesses))) return null;
 
         try
@@ -215,7 +375,7 @@ public static class TextReplacer
                 var beforeCaret = selections[0].Clone();
                 beforeCaret.MoveEndpointByUnit(TextPatternRangeEndpoint.Start, TextUnit.Character, -count);
                 string window = beforeCaret.GetText(count);
-                if (window.Length < count) return null;
+                if (window.Length < count && !allowShort) return null;
                 return window;
             }
 
@@ -224,7 +384,7 @@ public static class TextReplacer
             if (focused.TryGetCurrentPattern(ValuePattern.Pattern, out object valuePattern))
             {
                 string value = ((ValuePattern)valuePattern).Current.Value;
-                if (value.Length < count) return null;
+                if (value.Length < count) return allowShort ? value : null;
                 return value[^count..];
             }
             return null;
