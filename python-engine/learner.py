@@ -12,9 +12,11 @@ Everything is stored in lowercase in personal_dict.json. Saves are atomic: the f
 written next to the target and then swapped in, so a crash never leaves a half-written file.
 """
 
+import hashlib
 import json
 import os
 import re
+import secrets
 import threading
 import time
 from pathlib import Path
@@ -23,6 +25,9 @@ PROMOTE_AFTER = 3
 MAX_TRACKED_UNKNOWN_WORDS = 5000
 MAX_WORD_LENGTH = 40
 DEFAULT_BLOCK_HOURS = 24
+
+# The keys of the saved typing counts: 16 hex digits of a salted hash.
+_HASH_KEY = re.compile(r"^[0-9a-f]{16}$")
 
 # Letters, with apostrophes and hyphens allowed inside, starting with a letter.
 _VALID_WORD = re.compile(r"^[A-Za-z][A-Za-z'\-]*$")
@@ -45,7 +50,10 @@ class Learner:
         self._personal_words: set[str] = set()
         # word -> end of the block as Unix seconds, or None when the block never ends.
         self._never_correct: dict[str, float | None] = {}
+        # How often each unknown word was typed. The words themselves are never written to disk: the file
+        # holds only a salted hash of each word, and the word becomes readable only when it is promoted.
         self._unknown_counts: dict[str, int] = {}
+        self._salt = secrets.token_hex(8)
         self._load()
 
     # ----- lookups -----
@@ -74,7 +82,7 @@ class Learner:
         until = None if hours is None else self._clock() + hours * 3600
         with self._lock:
             self._never_correct[key] = until
-            self._unknown_counts.pop(key, None)
+            self._unknown_counts.pop(self._count_key(key), None)
             self._save()
 
     def observe_unknown(self, word: str) -> bool:
@@ -85,13 +93,14 @@ class Learner:
         with self._lock:
             if key in self._personal_words or self._active_block(key):
                 return False
-            count = self._unknown_counts.get(key, 0) + 1
+            count_key = self._count_key(key)
+            count = self._unknown_counts.get(count_key, 0) + 1
             if count >= PROMOTE_AFTER:
-                self._unknown_counts.pop(key, None)
+                self._unknown_counts.pop(count_key, None)
                 self._personal_words.add(key)
                 self._save()
                 return True
-            self._unknown_counts[key] = count
+            self._unknown_counts[count_key] = count
             # Keep the saved file small: forget the oldest counts first.
             while len(self._unknown_counts) > MAX_TRACKED_UNKNOWN_WORDS:
                 self._unknown_counts.pop(next(iter(self._unknown_counts)))
@@ -107,7 +116,7 @@ class Learner:
             return False
         with self._lock:
             self._personal_words.add(key)
-            self._unknown_counts.pop(key, None)
+            self._unknown_counts.pop(self._count_key(key), None)
             self._save()
         return True
 
@@ -140,6 +149,10 @@ class Learner:
 
     # ----- internals -----
 
+    def _count_key(self, key: str) -> str:
+        """The salted hash under which the typing count of a word is kept and saved."""
+        return hashlib.sha256((self._salt + key).encode("utf-8")).hexdigest()[:16]
+
     def _active_block(self, key: str) -> bool:
         """True when the word is blocked now. Expired blocks are removed as they are found."""
         if key not in self._never_correct:
@@ -168,11 +181,19 @@ class Learner:
             data = json.loads(self._path.read_text(encoding="utf-8"))
             self._personal_words = {normalize(w) for w in data.get("personal_words", []) if is_valid_word(w)}
             self._never_correct = self._load_blocks(data)
+            salt = data.get("salt")
+            if isinstance(salt, str) and len(salt) >= 8:
+                self._salt = salt
             counts = data.get("unknown_counts", {})
+            # Only hashed keys are kept. A file from an older version holds the typed words themselves;
+            # those entries are dropped and the file is rewritten without them.
             self._unknown_counts = {
-                normalize(w): int(c) for w, c in counts.items() if is_valid_word(w) and int(c) > 0
+                k: int(c) for k, c in counts.items() if _HASH_KEY.match(k) and int(c) > 0
             }
+            plaintext_dropped = len(counts) != len(self._unknown_counts)
             self._drop_expired()
+            if plaintext_dropped:
+                self._save()
         except (OSError, ValueError, AttributeError, TypeError):
             # An unreadable file must not stop the engine. Keep a copy for inspection and start empty.
             backup = self._path.with_suffix(self._path.suffix + ".corrupt")
@@ -202,6 +223,7 @@ class Learner:
         data = {
             "personal_words": sorted(self._personal_words),
             "never_correct": dict(sorted(self._never_correct.items())),
+            "salt": self._salt,
             "unknown_counts": dict(self._unknown_counts),
         }
         temporary = self._path.with_suffix(self._path.suffix + ".tmp")

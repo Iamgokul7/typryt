@@ -6,7 +6,7 @@ namespace Typryt;
 /// <summary>
 /// A plain daily log in %APPDATA%\Typryt\logs (or the project's shared\logs when running from the
 /// project). Each line has a time, a category, and a message. Files older than 7 days are removed.
-/// The log holds the text the user corrected, so it stays on this PC.
+/// The log holds only counts, timings, lengths and errors. It never holds text the user typed.
 /// </summary>
 public static class Log
 {
@@ -56,6 +56,31 @@ public static class Log
     {
         int count = Interlocked.Increment(ref _errorCount);
         Write("error", $"#{count} {place}: {ex.GetType().FullName}: {ex.Message}");
+    }
+
+    /// <summary>
+    /// Older builds wrote the typed words into the log. The first time this build starts, those log files are
+    /// deleted, and a marker file stops it from running again. Nothing else in the folder is touched.
+    /// </summary>
+    public static void PurgeWordLogsOnce()
+    {
+        try
+        {
+            string marker = Path.Combine(Folder, ".no-words-in-logs");
+            if (File.Exists(marker)) return;
+            if (Directory.Exists(Folder))
+            {
+                foreach (var file in Directory.GetFiles(Folder, "typryt-*.log")) File.Delete(file);
+            }
+            Directory.CreateDirectory(Folder);
+            File.WriteAllText(marker, "Logs written before this marker existed held typed words and were deleted.");
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     /// <summary>Removes log files older than KeepDays. Called once at startup.</summary>

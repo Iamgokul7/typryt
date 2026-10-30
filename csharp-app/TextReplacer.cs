@@ -64,12 +64,12 @@ public static class TextReplacer
         string? before = ReadSettledBeforeCaret(expectedBefore, readSlowApps: requireReadable);
         if (before is not null && before != expectedBefore)
         {
-            Log.Write("replace", $"skipped: text before caret was '{before}', expected '{expectedBefore}'");
+            Log.Write("replace", $"skipped: the {before.Length} characters before the caret differ from the {expectedBefore.Length} that were typed");
             return ReplaceResult.TextChanged;
         }
         if (before is null && requireReadable && !IsBrowserInFront())
         {
-            Log.Write("replace", $"refused: text before caret not readable, nothing changed (expected '{expectedBefore}')");
+            Log.Write("replace", $"refused: text before caret not readable, nothing changed ({expectedBefore.Length} characters)");
             return ReplaceResult.TextChanged;
         }
         Log.Write("replace", before is null
@@ -121,7 +121,7 @@ public static class TextReplacer
             }
         }
 
-        Log.Write("replace", $"'{expectedBefore}' -> '{newText}'");
+        Log.Write("replace", $"replaced {expectedBefore.Length} characters with {newText.Length}");
         return ReplaceResult.Done;
     }
 

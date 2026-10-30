@@ -92,6 +92,7 @@ public partial class App : Application
             return;
         }
 
+        Log.PurgeWordLogsOnce();
         Log.PruneOld();
         Log.Write("app", $"started {Environment.ProcessPath}");
 
@@ -385,7 +386,7 @@ public partial class App : Application
         if (!await StillQuietAsync(keySequence, ct)) return;
 
         ReplaceResult result = TextReplacer.ReplaceBeforeCaret(before, after);
-        Log.Write("punct", $"'{before}' -> '{after}' ({result})");
+        Log.Write("punct", $"punctuation fix {before.Length} -> {after.Length} characters ({result})");
         _lastWord = null;
         if (result != ReplaceResult.Done)
         {
@@ -457,7 +458,8 @@ public partial class App : Application
             _permissions.LearningEnabled,
             _permissions.AutoCapitalizeEnabled,
             _lastWord?.Trail ?? "");
-        Log.Write("engine", $"'{word.Text}' answered in {sw.ElapsedMilliseconds} ms" + (response is null ? " (no answer)" : $" -> '{response.Correction}' ({response.Confidence:0.00})"));
+        // The log never holds typed text: only timings, lengths and outcomes.
+        Log.Write("engine", $"answered in {sw.ElapsedMilliseconds} ms" + (response is null ? " (no answer)" : $", {(response.Correction == word.Text ? "unchanged" : "changed")} (confidence {response.Confidence:0.00})"));
         if (response is null)
         {
             _lastWord = null;
@@ -511,7 +513,7 @@ public partial class App : Application
         if (result != ReplaceResult.Done)
         {
             // Nothing was changed. Forget the earlier word, so no later revision uses it.
-            Log.Write("replace", $"not applied ({result}) for '{word.Text}'");
+            Log.Write("replace", $"not applied ({result}) for a word of {word.Text.Length} letters");
             _lastWord = null;
             return;
         }
@@ -534,7 +536,7 @@ public partial class App : Application
             _undo.Record(word.Text, corrected, word.Trail, keySequence);
             _stats.RecordCorrection(word.Text, corrected);
             ShowToast(word.Text, corrected);
-            Log.Write("correct", $"'{word.Text}' -> '{corrected}' in {sw.ElapsedMilliseconds} ms");
+            Log.Write("correct", $"corrected {word.Text.Length} -> {corrected.Length} letters in {sw.ElapsedMilliseconds} ms");
             _ = VerifyAfterAsync(corrected + word.Trail, keySequence);
         }
     }
@@ -569,8 +571,8 @@ public partial class App : Application
             }
 
             if (actual is null) Log.Write("verify", "not readable in this app");
-            else if (actual == expected) Log.Write("verify", $"ok '{expected}'");
-            else Log.Write("verify", $"MISMATCH: expected '{expected}', found '{actual}'");
+            else if (actual == expected) Log.Write("verify", $"ok ({expected.Length} characters)");
+            else Log.Write("verify", $"MISMATCH: expected {expected.Length} characters, found {actual.Length} that differ");
         }
         catch (Exception ex)
         {
@@ -611,13 +613,13 @@ public partial class App : Application
         if (result != ReplaceResult.Done)
         {
             // The text was changed since the correction, so nothing is undone.
-            Log.Write("undo", $"not applied ({result}) for '{correction.Corrected}'");
+            Log.Write("undo", $"not applied ({result}) for a correction of {correction.Corrected.Length} letters");
             ShowMessage("Can't undo: the text changed");
             _lastWord = null;
             return;
         }
 
-        Log.Write("undo", $"'{correction.Corrected}' -> '{correction.Original}'");
+        Log.Write("undo", $"undone: {correction.Corrected.Length} -> {correction.Original.Length} letters");
         ReplaceTail(correction.Corrected + correction.Trail, correction.Original + correction.Trail);
         _lastWord = new ScreenWord(correction.Original, correction.Trail);
         _stats.RecordUndo(correction.Original, correction.Corrected);
