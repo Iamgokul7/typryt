@@ -51,6 +51,13 @@
                         <Slider x:Name="ToastSlider" Minimum="1" Maximum="5" TickFrequency="1"
                                 IsSnapToTickEnabled="True" ValueChanged="ToastSlider_ValueChanged"/>
                     </DockPanel>
+                    <TextBlock Margin="0,12,0,4" Text="After an undo, keep the word uncorrected for"/>
+                    <ComboBox x:Name="BlockBox" SelectionChanged="Block_SelectionChanged">
+                        <ComboBoxItem Content="1 hour" Tag="1"/>
+                        <ComboBoxItem Content="24 hours" Tag="24"/>
+                        <ComboBoxItem Content="7 days" Tag="168"/>
+                        <ComboBoxItem Content="Until I remove it" Tag="0"/>
+                    </ComboBox>
                     <TextBlock Margin="0,12,0,4" Text="Show the toast in this corner"/>
                     <ComboBox x:Name="CornerBox" SelectionChanged="Corner_SelectionChanged">
                         <ComboBoxItem Content="Top left" Tag="top-left"/>

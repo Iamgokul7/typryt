@@ -33,6 +33,7 @@ public partial class SettingsView : UserControl
         ToastSlider.Value = permissions.ToastSeconds;
         ToastLabel.Text = $"{permissions.ToastSeconds} s";
         SelectCorner(permissions.ToastCorner);
+        SelectBlock(permissions.UndoBlockHours);
         ThemeBox.IsChecked = permissions.Theme == "light";
         AppList.ItemsSource = permissions.Apps;
         _loading = false;
@@ -67,6 +68,24 @@ public partial class SettingsView : UserControl
         int seconds = (int)Math.Round(ToastSlider.Value);
         ToastLabel.Text = $"{seconds} s";
         Change(p => p.ToastSeconds = seconds);
+    }
+
+    private void Block_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || BlockBox.SelectedItem is not ComboBoxItem item) return;
+        Change(p => p.UndoBlockHours = int.Parse((string)item.Tag));
+    }
+
+    private void SelectBlock(int hours)
+    {
+        foreach (ComboBoxItem item in BlockBox.Items)
+        {
+            if (int.Parse((string)item.Tag) == hours)
+            {
+                BlockBox.SelectedItem = item;
+                return;
+            }
+        }
     }
 
     private void Corner_SelectionChanged(object sender, SelectionChangedEventArgs e)

@@ -27,6 +27,14 @@ public static class AppPaths
     /// <summary>The folder for config.json, stats.json, and the learned words. Created if missing.</summary>
     public static string DataFolder()
     {
+        // Tests set TYPRYT_DATA_FOLDER so they never read or write the user's own files.
+        string? overridden = Environment.GetEnvironmentVariable("TYPRYT_DATA_FOLDER");
+        if (!string.IsNullOrWhiteSpace(overridden))
+        {
+            Directory.CreateDirectory(overridden);
+            return overridden;
+        }
+
         var root = RepositoryRoot();
         var folder = root is not null
             ? Path.Combine(root, "shared")

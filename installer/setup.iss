@@ -4,7 +4,7 @@
 ; Your settings, learned words, and stats live in %APPDATA%\Typryt and are kept when Typryt is uninstalled.
 
 #define MyAppName "Typryt"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Gokul P"
 
 [Setup]

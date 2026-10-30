@@ -16,6 +16,7 @@ public sealed class TrayIcon : IDisposable
 
     public event Action? OpenDashboardRequested;
     public event Action? OpenHistoryRequested;
+    public event Action? OpenLogFolderRequested;
     public event Action? ToggleRequested;
     public event Action? ExitRequested;
 
@@ -31,6 +32,9 @@ public sealed class TrayIcon : IDisposable
         var history = new WinForms.ToolStripMenuItem("Correction History");
         history.Click += (_, _) => OpenHistoryRequested?.Invoke();
 
+        var logs = new WinForms.ToolStripMenuItem("Open Log Folder");
+        logs.Click += (_, _) => OpenLogFolderRequested?.Invoke();
+
         var exit = new WinForms.ToolStripMenuItem("Exit");
         exit.Click += (_, _) => ExitRequested?.Invoke();
 
@@ -40,6 +44,7 @@ public sealed class TrayIcon : IDisposable
         menu.Items.Add(_toggle);
         menu.Items.Add(dashboard);
         menu.Items.Add(history);
+        menu.Items.Add(logs);
         menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add(exit);
 

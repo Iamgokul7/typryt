@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Channels;
 using System.Windows;
@@ -41,13 +43,36 @@ public partial class App : Application
     // Only the worker thread reads and writes this: the last word on screen, and its trail.
     private ScreenWord? _lastWord;
 
+    // The last characters typed on screen since the last reset (worker thread only).
+    private readonly StringBuilder _tail = new();
+    private const int TailLength = 12;
+
+    // Time with no new keys before a replacement is made.
+    private const int QuietMilliseconds = 30;
+
+    // Wait before the read-back after a correction, so the typed keys have landed (Notepad reads take about 85 ms).
+    private const int VerifyDelayMilliseconds = 150;
+
+    // How many read-backs ran, and how many were skipped because typing continued. Shown in the log.
+    private static int _verifyChecks;
+    private static int _verifySkipped;
+
+    // Spacing or punctuation that the engine's punctuation fix may change.
+    private static readonly Regex NeedsPunctuationFix = new(@"[ \t]{2}|[ \t][.,!?;:]|([.!?,])\1", RegexOptions.Compiled);
+
     // Tray icon, engine process, and dashboard window. All used on the UI thread.
     private TrayIcon? _tray;
     private EngineLauncher? _engine;
     private MainWindow? _main;
     private bool _exiting;
 
-    private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence, bool UndoRequest = false);
+    // The last foreground window and whether it was allowed, kept briefly (hook thread only).
+    private const int WindowCacheMilliseconds = 300;
+    private IntPtr _cachedWindow;
+    private bool _cachedAllowed;
+    private long _cachedAtTicks;
+
+    private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence, bool UndoRequest = false, char? Typed = null, bool Backspace = false);
 
     private sealed record ScreenWord(string Text, string Trail);
 
@@ -63,6 +88,9 @@ public partial class App : Application
             return;
         }
 
+        Log.PruneOld();
+        Log.Write("app", $"started {Environment.ProcessPath}");
+
         _permissions.Load();
         if (!_permissions.FirstRunDone)
         {
@@ -72,6 +100,7 @@ public partial class App : Application
         _keyboardHook = new KeyboardHook();
         _keyboardHook.KeyPressed += OnKeyPressed;
         _keyboardHook.AltUPressed += OnAltUPressed;
+        _keyboardHook.MouseClicked += OnMouseClicked;
         _keyboardHook.Install();
         _keyboardHook.UndoVirtualKey = UndoKeyFor(_permissions.UndoLetter);
         _permissions.Changed += ApplySettings;
@@ -80,12 +109,24 @@ public partial class App : Application
 
         // The engine starts in the background, so the splash is not held up by it.
         _engine = new EngineLauncher();
-        Task.Run(() => _engine.StartIfNeeded());
+        Task.Run(() =>
+        {
+            try
+            {
+                bool running = _engine.StartIfNeeded();
+                Log.Write("engine", running ? "engine is running" : "engine did not start");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("engine start", ex);
+            }
+        });
 
         // The app lives in the tray. The dashboard opens only when asked for.
         _tray = new TrayIcon(_permissions.MasterEnabled);
         _tray.OpenDashboardRequested += ShowDashboard;
         _tray.OpenHistoryRequested += ShowDashboard;
+        _tray.OpenLogFolderRequested += () => Process.Start("explorer.exe", $"\"{Log.Folder}\"");
         _tray.ToggleRequested += ToggleCorrections;
         _tray.ExitRequested += ExitApp;
 
@@ -187,11 +228,32 @@ public partial class App : Application
             _jobs.Writer.TryWrite(new Job(null, ResetContext: true, sequence));
         }
 
+        // The text typed since the last reset, kept in order with the corrections so punctuation fixes see what is on screen.
+        if (key.IsBackspace)
+        {
+            _jobs.Writer.TryWrite(new Job(null, ResetContext: false, sequence, Backspace: true));
+        }
+        else if (key.Character is { } typed && !key.IsBreak)
+        {
+            _jobs.Writer.TryWrite(new Job(null, ResetContext: false, sequence, Typed: typed));
+        }
+
         var completed = _wordDetector.OnKey(key);
         if (completed is not null)
         {
             _jobs.Writer.TryWrite(new Job(completed, ResetContext: false, sequence));
         }
+    }
+
+    /// <summary>
+    /// Runs on the hook thread. A click moves the caret, so the typing context ends here, and any
+    /// correction still in progress is dropped (it would act on the wrong text).
+    /// </summary>
+    private void OnMouseClicked()
+    {
+        int sequence = Interlocked.Increment(ref _keySequence);
+        _wordDetector.OnKey(new KeyInput(null, IsBackspace: false, IsBreak: true));
+        _jobs.Writer.TryWrite(new Job(null, ResetContext: true, sequence));
     }
 
     /// <summary>Runs on the hook thread. Takes Alt+U only in Notepad, and queues the undo.</summary>
@@ -233,7 +295,16 @@ public partial class App : Application
                     else if (job.ResetContext)
                     {
                         _lastWord = null;
+                        _tail.Clear();
                         await _api.ResetAsync(SessionId, ct);
+                    }
+                    else if (job.Backspace)
+                    {
+                        if (_tail.Length > 0) _tail.Length--;
+                    }
+                    else if (job.Typed is char typedChar)
+                    {
+                        await HandleTypedAsync(typedChar, job.KeySequence, ct);
                     }
                     else if (job.Word is not null)
                     {
@@ -244,10 +315,12 @@ public partial class App : Application
                 {
                     return;
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // A failed correction leaves the text alone. Logging comes with the tray icon (Phase 11).
+                    // A failed correction leaves the text alone. The error is logged and counted.
+                    Log.Error("job", ex);
                     _lastWord = null;
+                    _tail.Clear();
                 }
             }
         }
@@ -256,8 +329,80 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// Adds a typed character to the tail, then fixes punctuation when a space or mark ends a piece of it.
+    /// A period waits for the next key, so "..." can become an ellipsis; "done.." is fixed by the next space.
+    /// </summary>
+    private async Task HandleTypedAsync(char typed, int keySequence, CancellationToken ct)
+    {
+        _tail.Append(typed);
+        if (_tail.Length > TailLength) _tail.Remove(0, _tail.Length - TailLength);
+
+        // A period never triggers the check: the fix must see the screen as it is after the next key.
+        // "..." becomes an ellipsis when the space after it is typed.
+        if (typed is ' ' or ',' or '!' or '?' or ';' or ':') await FixPunctuationAsync(keySequence, ct);
+    }
+
+    /// <summary>
+    /// Asks the engine to fix the tail and replaces it on screen. Skipped when the user has typed more
+    /// since the key that started the check, because the screen then differs from the tail.
+    /// </summary>
+    private async Task FixPunctuationAsync(int keySequence, CancellationToken ct)
+    {
+        string before = _tail.ToString();
+        if (!NeedsPunctuationFix.IsMatch(before)) return;
+
+        string? after = await _api.PunctuateAsync(before, ct);
+        if (after is null || after == before) return;
+        if (!await StillQuietAsync(keySequence, ct)) return;
+
+        ReplaceResult result = TextReplacer.ReplaceBeforeCaret(before, after);
+        Log.Write("punct", $"'{before}' -> '{after}' ({result})");
+        _lastWord = null;
+        if (result != ReplaceResult.Done)
+        {
+            _tail.Clear();
+            return;
+        }
+
+        _tail.Clear().Append(after);
+    }
+
+    /// <summary>
+    /// True when no key has been typed for a short time after the key that started this work. Replacing
+    /// text while the user is still typing can delete the wrong characters, so the work waits for a pause
+    /// and is dropped if typing continues.
+    /// </summary>
+    private async Task<bool> StillQuietAsync(int keySequence, CancellationToken ct)
+    {
+        await Task.Delay(QuietMilliseconds, ct);
+        return Volatile.Read(ref _keySequence) == keySequence;
+    }
+
+    /// <summary>Keeps the tail in step with the screen after a correction or undo. Clears it if the tail does not end with the old text.</summary>
+    private void ReplaceTail(string oldSuffix, string newSuffix)
+    {
+        if (_tail.ToString().EndsWith(oldSuffix, StringComparison.Ordinal))
+        {
+            _tail.Length -= oldSuffix.Length;
+            _tail.Append(newSuffix);
+        }
+        else
+        {
+            _tail.Clear();
+        }
+    }
+
     private async Task ProcessWordAsync(CompletedWord word, int keySequence, CancellationToken ct)
     {
+        var sw = Stopwatch.StartNew();
+
+        // Test switch only: makes one correction fail, so the test can check that the error is logged.
+        if (InputMarks.TestInput && Environment.GetEnvironmentVariable("TYPRYT_TEST_FORCE_ERROR") == "1")
+        {
+            throw new InvalidOperationException("forced error for the test");
+        }
+
         // Words the pre-filters skip never reach the engine, so the engine's previous word
         // is no longer the word before this one. Revisions can't be trusted after that.
         // Words the user undid are never corrected again. The engine keeps that list and leaves
@@ -274,7 +419,9 @@ public partial class App : Application
             _permissions.AbbreviationsEnabled,
             ct,
             _permissions.LearningEnabled,
-            _permissions.AutoCapitalizeEnabled);
+            _permissions.AutoCapitalizeEnabled,
+            _lastWord?.Trail ?? "");
+        Log.Write("engine", $"'{word.Text}' answered in {sw.ElapsedMilliseconds} ms" + (response is null ? " (no answer)" : $" -> '{response.Correction}' ({response.Confidence:0.00})"));
         if (response is null)
         {
             _lastWord = null;
@@ -305,21 +452,43 @@ public partial class App : Application
             if (revisedPrevious == previous.Text) revisedPrevious = null;
         }
 
-        if (Volatile.Read(ref _keySequence) != keySequence)
+        if (!await StillQuietAsync(keySequence, ct))
         {
+            // Typing continued, so the word stays as typed. It is still the word before the next one.
+            _lastWord = new ScreenWord(word.Text, word.Trail);
+            return;
+        }
+
+        ReplaceResult result = ReplaceResult.Done;
+        if (revisedPrevious is not null && previous is not null)
+        {
+            // Rewrite the earlier word, its trail, this word, and its trail in one go.
+            result = TextReplacer.ReplaceBeforeCaret(
+                previous.Text + previous.Trail + word.Text + word.Trail,
+                revisedPrevious + previous.Trail + corrected + word.Trail);
+        }
+        else if (corrected != word.Text)
+        {
+            result = TextReplacer.ReplaceBeforeCaret(word.Text + word.Trail, corrected + word.Trail);
+        }
+
+        if (result != ReplaceResult.Done)
+        {
+            // Nothing was changed. Forget the earlier word, so no later revision uses it.
+            Log.Write("replace", $"not applied ({result}) for '{word.Text}'");
             _lastWord = null;
             return;
         }
 
         if (revisedPrevious is not null && previous is not null)
         {
-            // Rewrite the earlier word, its trail, this word, and its trail in one go.
-            int deleteCount = previous.Text.Length + previous.Trail.Length + word.Text.Length + word.Trail.Length;
-            TextReplacer.Replace(deleteCount, revisedPrevious + previous.Trail + corrected + word.Trail);
+            ReplaceTail(
+                previous.Text + previous.Trail + word.Text + word.Trail,
+                revisedPrevious + previous.Trail + corrected + word.Trail);
         }
         else if (corrected != word.Text)
         {
-            TextReplacer.Replace(word.Text.Length + word.Trail.Length, corrected + word.Trail);
+            ReplaceTail(word.Text + word.Trail, corrected + word.Trail);
         }
 
         _lastWord = new ScreenWord(corrected, word.Trail);
@@ -329,6 +498,47 @@ public partial class App : Application
             _undo.Record(word.Text, corrected, word.Trail, keySequence);
             _stats.RecordCorrection(word.Text, corrected);
             ShowToast(word.Text, corrected);
+            Log.Write("correct", $"'{word.Text}' -> '{corrected}' in {sw.ElapsedMilliseconds} ms");
+            _ = VerifyAfterAsync(corrected + word.Trail, keySequence);
+        }
+    }
+
+    /// <summary>
+    /// Reads the text before the caret after a correction and logs whether it is what was typed. It only
+    /// logs: a mismatch is reported so it can be investigated, not repaired. Skipped when typing continued,
+    /// because the text before the caret then legitimately differs.
+    /// </summary>
+    private async Task VerifyAfterAsync(string expected, int keySequence)
+    {
+        try
+        {
+            await Task.Delay(VerifyDelayMilliseconds);
+            Interlocked.Increment(ref _verifyChecks);
+            if (Volatile.Read(ref _keySequence) != keySequence)
+            {
+                int skipped = Interlocked.Increment(ref _verifySkipped);
+                Log.Write("verify", $"skipped: typing continued ({skipped} of {_verifyChecks} checks skipped so far)");
+                return;
+            }
+
+            string? actual = TextReplacer.TextBeforeCaret(expected.Length, readSlowApps: true);
+
+            // The read can take most of a second in some apps. If a key arrived during it, the text may
+            // have changed under the read, so the result is not compared.
+            if (Volatile.Read(ref _keySequence) != keySequence)
+            {
+                int skipped = Interlocked.Increment(ref _verifySkipped);
+                Log.Write("verify", $"skipped: typing during the read ({skipped} of {_verifyChecks} checks skipped so far)");
+                return;
+            }
+
+            if (actual is null) Log.Write("verify", "not readable in this app");
+            else if (actual == expected) Log.Write("verify", $"ok '{expected}'");
+            else Log.Write("verify", $"MISMATCH: expected '{expected}', found '{actual}'");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("verify", ex);
         }
     }
 
@@ -337,6 +547,7 @@ public partial class App : Application
     {
         var attempt = _undo.Attempt(Volatile.Read(ref _keySequence));
         var correction = attempt.Correction;
+        Log.Write("undo", $"request: {(correction is null ? attempt.Refusal.ToString() : "allowed")}");
         if (correction is null)
         {
             // Say why the undo was refused. With nothing to undo there is nothing to say.
@@ -356,15 +567,26 @@ public partial class App : Application
         }
 
         HideToast();
-        TextReplacer.Replace(correction.Corrected.Length + correction.Trail.Length, correction.Original + correction.Trail);
+        // Undo deletes by counting characters, so the text must be read first and must still match.
+        var result = TextReplacer.ReplaceBeforeCaret(
+            correction.Corrected + correction.Trail,
+            correction.Original + correction.Trail,
+            requireReadable: true);
+        if (result != ReplaceResult.Done)
+        {
+            // The text was changed since the correction, so nothing is undone.
+            Log.Write("undo", $"not applied ({result}) for '{correction.Corrected}'");
+            ShowMessage("Can't undo: the text changed");
+            _lastWord = null;
+            return;
+        }
+
+        Log.Write("undo", $"'{correction.Corrected}' -> '{correction.Original}'");
+        ReplaceTail(correction.Corrected + correction.Trail, correction.Original + correction.Trail);
         _lastWord = new ScreenWord(correction.Original, correction.Trail);
         _stats.RecordUndo(correction.Original, correction.Corrected);
 
-        // The engine remembers the undo, so this word is never corrected again (also after a restart).
-        if (_permissions.LearningEnabled)
-        {
-            await _api.LearnUndoAsync(correction.Original, ct);
-        }
+        // An undo reverts only this correction. The word is not blocked: when it is typed again it can be corrected.
     }
 
     private void ShowMessage(string message)
@@ -393,22 +615,37 @@ public partial class App : Application
         _jobs.Writer.TryWrite(new Job(null, ResetContext: false, 0, UndoRequest: true));
     }
 
-    /// <summary>True when the window the user is typing in belongs to an app the user allowed.</summary>
+    /// <summary>
+    /// True when the window the user is typing in belongs to an app the user allowed. The answer is
+    /// kept for a short time for the same window, so the keyboard hook does not look up the process
+    /// on every key. Runs on the hook thread only.
+    /// </summary>
     private bool IsAllowedWindowActive()
     {
         IntPtr window = GetForegroundWindow();
         if (window == IntPtr.Zero) return false;
 
+        long now = Environment.TickCount64;
+        if (window == _cachedWindow && now - _cachedAtTicks < WindowCacheMilliseconds)
+        {
+            return _cachedAllowed;
+        }
+
+        bool allowed = false;
         GetWindowThreadProcessId(window, out uint processId);
         try
         {
             using var process = Process.GetProcessById((int)processId);
-            return _permissions.IsAllowed(process.ProcessName);
+            allowed = _permissions.IsAllowed(process.ProcessName);
         }
         catch (ArgumentException)
         {
-            return false;
         }
+
+        _cachedWindow = window;
+        _cachedAllowed = allowed;
+        _cachedAtTicks = now;
+        return allowed;
     }
 
     [DllImport("user32.dll")]

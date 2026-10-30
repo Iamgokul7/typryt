@@ -76,12 +76,18 @@ public sealed class ToastManager
         window.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 
+    /// <summary>The brush the app's theme uses for this key, so the toast follows the light and dark theme.</summary>
+    private static Brush ThemeBrush(string key, Color fallback)
+    {
+        return Application.Current?.Resources[key] as Brush ?? new SolidColorBrush(fallback);
+    }
+
     private Window BuildWindow(string message, bool showUndo)
     {
         var text = new TextBlock
         {
             Text = message,
-            Foreground = new SolidColorBrush(Foreground),
+            Foreground = ThemeBrush("TextPrimaryBrush", Foreground),
             FontFamily = new FontFamily("Segoe UI"),
             FontSize = 14,
             VerticalAlignment = VerticalAlignment.Center,
@@ -112,7 +118,7 @@ public sealed class ToastManager
         var close = new Button
         {
             Content = "✕",
-            Foreground = new SolidColorBrush(Foreground),
+            Foreground = ThemeBrush("TextPrimaryBrush", Foreground),
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             FontSize = 12,
@@ -129,7 +135,7 @@ public sealed class ToastManager
 
         var card = new Border
         {
-            Background = new SolidColorBrush(Background),
+            Background = ThemeBrush("SurfaceBrush", Background),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(16, 10, 10, 10),
             Child = row,

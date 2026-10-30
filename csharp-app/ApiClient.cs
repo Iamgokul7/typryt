@@ -25,7 +25,7 @@ public sealed class ApiClient : IDisposable
     }
 
     /// <summary>Returns the engine's answer, or null if the engine is unreachable or slow.</summary>
-    public async Task<CorrectResponse?> CorrectAsync(string word, string sessionId, bool abbreviationsEnabled, CancellationToken ct, bool learningEnabled = true, bool autoCapitalize = true)
+    public async Task<CorrectResponse?> CorrectAsync(string word, string sessionId, bool abbreviationsEnabled, CancellationToken ct, bool learningEnabled = true, bool autoCapitalize = true, string previousTrail = "")
     {
         try
         {
@@ -36,6 +36,7 @@ public sealed class ApiClient : IDisposable
                 AbbreviationsEnabled = abbreviationsEnabled,
                 LearningEnabled = learningEnabled,
                 AutoCapitalize = autoCapitalize,
+                PreviousTrail = previousTrail,
             };
             using var response = await _http.PostAsJsonAsync("correct", request, JsonOptions, ct);
             if (!response.IsSuccessStatusCode) return null;
@@ -51,15 +52,36 @@ public sealed class ApiClient : IDisposable
         }
     }
 
+    /// <summary>Returns the text with punctuation and spacing fixed, or null if the engine is unreachable or slow.</summary>
+    public async Task<string?> PunctuateAsync(string text, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync("punctuate", new PunctuateRequest { Text = text }, JsonOptions, ct);
+            if (!response.IsSuccessStatusCode) return null;
+            var answer = await response.Content.ReadFromJsonAsync<PunctuateResponse>(JsonOptions, ct);
+            return answer?.Text;
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+        catch (TaskCanceledException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     /// Tells the engine the user undid a correction of this word, so it is never corrected again.
     /// Failures are ignored: the undo itself has already happened on screen.
     /// </summary>
-    public async Task LearnUndoAsync(string word, CancellationToken ct)
+    public async Task LearnUndoAsync(string word, int blockHours, CancellationToken ct)
     {
         try
         {
-            using var response = await _http.PostAsJsonAsync("learn/undo", new LearnUndoRequest { Word = word }, JsonOptions, ct);
+            var request = new LearnUndoRequest { Word = word, Hours = blockHours == 0 ? null : blockHours };
+            using var response = await _http.PostAsJsonAsync("learn/undo", request, JsonOptions, ct);
         }
         catch (HttpRequestException)
         {
@@ -158,16 +180,24 @@ public sealed class ApiClient : IDisposable
         [JsonPropertyName("abbreviations_enabled")] public bool AbbreviationsEnabled { get; set; }
         [JsonPropertyName("learning_enabled")] public bool LearningEnabled { get; set; }
         [JsonPropertyName("auto_capitalize")] public bool AutoCapitalize { get; set; }
+        [JsonPropertyName("previous_trail")] public string PreviousTrail { get; set; } = "";
     }
 
     private sealed class LearnUndoRequest
     {
         [JsonPropertyName("word")] public string Word { get; set; } = "";
+        // Null means the block never expires.
+        [JsonPropertyName("hours")] public int? Hours { get; set; }
     }
 
     private sealed class ResetRequest
     {
         [JsonPropertyName("session_id")] public string SessionId { get; set; } = "";
+    }
+
+    private sealed class PunctuateRequest
+    {
+        [JsonPropertyName("text")] public string Text { get; set; } = "";
     }
 }
 
@@ -181,11 +211,20 @@ public sealed class CorrectResponse
     [JsonPropertyName("previous_correction")] public PreviousCorrection? PreviousCorrection { get; set; }
 }
 
+/// <summary>Response from POST /punctuate.</summary>
+public sealed class PunctuateResponse
+{
+    [JsonPropertyName("text")] public string Text { get; set; } = "";
+}
+
 /// <summary>Response from GET /dictionary: the user's learned words and the words they undid.</summary>
 public sealed class DictionarySnapshot
 {
     [JsonPropertyName("personal_words")] public List<string> PersonalWords { get; set; } = new();
     [JsonPropertyName("never_correct")] public List<string> NeverCorrect { get; set; } = new();
+
+    /// <summary>When each blocked word stops being blocked, as Unix seconds. Null means it never expires.</summary>
+    [JsonPropertyName("never_correct_until")] public Dictionary<string, double?> NeverCorrectUntil { get; set; } = new();
 }
 
 /// <summary>An earlier word on screen that the new word settled (its to it's, were to we're).</summary>

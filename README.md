@@ -26,7 +26,7 @@ Typryt works like mobile autocorrect, but for Windows 11 desktop. It listens to 
 
 ## Install
 
-Run `TyprytSetup-1.0.0.exe` (built with the steps below). It installs for your user account only, so no administrator password is needed. Typryt starts with a short splash animation and then sits in the tray.
+Run `TyprytSetup-1.0.1.exe` (built with the steps below). It installs for your user account only, so no administrator password is needed. Typryt starts with a short splash animation and then sits in the tray.
 
 ## Build from source
 
@@ -81,10 +81,14 @@ Run `TyprytSetup-1.0.0.exe` (built with the steps below). It installs for your u
 
 ## Known limits in 1.0
 
-- Corrections run only in apps you allow. Apps that do not accept pasted text may not be corrected.
+- Corrections run only in apps you allow. Notepad needs its keys sent one at a time, so very fast typing in Notepad (faster than about 5 keys a second) can skip some corrections. Nothing is garbled.
 - Words you undo are not corrected again until you remove them in the Dictionary tab.
-- The context-aware spelling layer (jamspell) is not included in 1.0. Corrections use the rules, symspellpy, and Hunspell.
+- The context-aware spelling layer (jamspell, Layer 3 of the plan) is not included. It needed a C++ build of jamspell that does not run with the Windows model in this project, and it only runs when the other layers disagree, so the rules, symspellpy and Hunspell cover the corrections. Corrections use these layers. The were/we're rule looks back up to three words, and the buffer keeps the last five.
 - If the app is ended from Task Manager, the engine it started may keep running. The next start reuses it.
+
+## For developers: automated tests
+
+The app ignores keys sent by other programs. For automated tests only, set the environment variable `TYPRYT_TEST_INPUT=1` before starting the app, so keys sent by a test script are counted. It is off by default, and a normal run never reads it as on. The app's own corrections are always ignored, so they cannot trigger themselves.
 
 ## License
 

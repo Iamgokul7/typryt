@@ -30,6 +30,9 @@ shared/config.json
 shared/config.json.tmp
 shared/config.json.corrupt
 
+# Daily logs: timings and the words typed are written here (personal, not for git)
+shared/logs/
+
 # Usage stats and correction history: contain the words the user typed (personal, not for git)
 shared/stats.json
 shared/stats.json.tmp
@@ -40,3 +43,19 @@ publish/
 installer/Output/
 
 python-engine/*.spec
+
+# QA test runs, agent tooling and local state (not source)
+_test_run/
+.claude-flow/
+.swarm/
+*.log
+
+# Virtual environments and personal data, wherever they are
+venv/
+personal_dict.json
+personal_dict.json.tmp
+*.corrupt
+stats.json
+stats.json.tmp
+config.json
+config.json.tmp

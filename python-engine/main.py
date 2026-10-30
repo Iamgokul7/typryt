@@ -18,6 +18,12 @@ from spell_checker import SpellChecker
 def _data_folder() -> Path:
     """The same rule as the app: the repository's shared folder when running from the project,
     otherwise %APPDATA%\\Typryt for an installed copy."""
+    # Tests set TYPRYT_DATA_FOLDER so they never read or write the user's own files.
+    overridden = os.environ.get("TYPRYT_DATA_FOLDER", "").strip()
+    if overridden:
+        folder = Path(overridden)
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
     here = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve()
     for folder in [here.parent, *here.parents]:
         if (folder / "shared").is_dir() and (folder / "csharp-app").is_dir():
@@ -56,6 +62,8 @@ class CorrectRequest(BaseModel):
     learning_enabled: bool = True
     # Auto-capitalize: when off, the first word after a sentence end is left as typed.
     auto_capitalize: bool = True
+    # Punctuation and spaces typed after the previous word (for example ". "), so a sentence end is known.
+    previous_trail: str = ""
 
 
 class PreviousCorrection(BaseModel):
@@ -92,11 +100,15 @@ class WordRequest(BaseModel):
 
 class LearnUndoRequest(BaseModel):
     word: str
+    # How long the word stays blocked, in hours. None means it stays blocked until removed.
+    hours: float | None = 24
 
 
 class DictionarySnapshot(BaseModel):
     personal_words: list[str]
     never_correct: list[str]
+    # When each blocked word stops being blocked (Unix seconds); None means it never expires.
+    never_correct_until: dict[str, float | None]
 
 
 @app.get("/health")
@@ -113,23 +125,32 @@ def correct(request: CorrectRequest) -> CorrectResponse:
 
     previous_correction = None
     if previous is not None:
-        revised = resolve_pending(previous, request.word)
+        words = buffer.words()
+        before_previous = words[:-1]
+        revised = resolve_pending(previous, request.word, before_previous)
         if revised is not None:
             previous_correction = PreviousCorrection(original=previous, correction=revised)
             buffer.replace_last(revised)
 
+    # The buffer holds words without their punctuation, so the sentence end is added back from the trail.
+    previous_for_rules = previous + request.previous_trail.strip() if previous is not None else None
+
     result = spell_checker.correct(
         request.word,
-        previous,
+        previous_for_rules,
         request.abbreviations_enabled,
         request.learning_enabled,
         request.auto_capitalize,
     )
-    buffer.push(result.correction)
+    correction = result.correction
+    # "however lets" -> "however, let's": after a comma trigger word, "lets" is almost always "let's".
+    if comma and request.word.lower() == "lets":
+        correction = "Let's" if request.word[0].isupper() else "let's"
+    buffer.push(correction)
 
     return CorrectResponse(
         original=result.original,
-        correction=result.correction,
+        correction=correction,
         confidence=result.confidence,
         comma_after_previous=comma,
         previous_correction=previous_correction,
@@ -152,7 +173,7 @@ def punctuate(request: PunctuateRequest) -> PunctuateResponse:
 @app.post("/learn/undo")
 def learn_undo(request: LearnUndoRequest) -> dict[str, str]:
     # The user undid a correction: this word is never corrected again.
-    learner.record_undo(request.word)
+    learner.record_undo(request.word, request.hours)
     return {"status": "recorded"}
 
 

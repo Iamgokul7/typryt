@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -19,6 +20,11 @@ internal sealed class KeyboardHook : IDisposable
     private const int WM_KEYUP = 0x0101;
     private const int WM_SYSKEYUP = 0x0105;
     private const uint LLKHF_INJECTED = 0x10;
+    private const uint LLKHF_EXTENDED = 0x01;
+    private const int WH_MOUSE_LL = 14;
+    private const int WM_LBUTTONDOWN = 0x0201;
+    private const int WM_RBUTTONDOWN = 0x0204;
+    private const int WM_MBUTTONDOWN = 0x0207;
 
     private const int VK_BACK = 0x08;
     private const int VK_TAB = 0x09;
@@ -44,6 +50,8 @@ internal sealed class KeyboardHook : IDisposable
 
     private LowLevelKeyboardProc? _proc;
     private IntPtr _hookId = IntPtr.Zero;
+    private LowLevelKeyboardProc? _mouseProc;
+    private IntPtr _mouseHookId = IntPtr.Zero;
 
     // Alt key state tracked from the hook's own key events.
     private bool _altDown;
@@ -51,6 +59,12 @@ internal sealed class KeyboardHook : IDisposable
     private const int VK_U = 0x55;
 
     public event Action<KeyInput>? KeyPressed;
+
+    /// <summary>
+    /// Raised when a mouse button goes down anywhere. A click can move the caret, so the text before
+    /// the caret is no longer what the app has typed. Must return fast.
+    /// </summary>
+    public event Action? MouseClicked;
 
     /// <summary>
     /// Raised when Alt+U is pressed. A handler that returns true takes the key: Windows
@@ -70,9 +84,18 @@ internal sealed class KeyboardHook : IDisposable
         using var module = Process.GetCurrentProcess().MainModule
             ?? throw new InvalidOperationException("No main module for the keyboard hook.");
         _hookId = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, GetModuleHandle(module.ModuleName), 0);
+        _current = this;
         if (_hookId == IntPtr.Zero)
         {
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not install the keyboard hook.");
+        }
+
+        _mouseProc = MouseCallback;
+        _mouseHookId = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc, GetModuleHandle(module.ModuleName), 0);
+        if (_mouseHookId == IntPtr.Zero)
+        {
+            // Typing still works without it; only the click reset is lost.
+            Log.Write("hook", $"mouse hook not installed (error {Marshal.GetLastWin32Error()})");
         }
     }
 
@@ -83,7 +106,55 @@ internal sealed class KeyboardHook : IDisposable
             UnhookWindowsHookEx(_hookId);
             _hookId = IntPtr.Zero;
         }
+        if (_mouseHookId != IntPtr.Zero)
+        {
+            UnhookWindowsHookEx(_mouseHookId);
+            _mouseHookId = IntPtr.Zero;
+        }
     }
+
+    private IntPtr MouseCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        int message = wParam.ToInt32();
+        if (nCode >= 0 && message is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN)
+        {
+            // Clicks on this app's own windows (the toast's Undo button) do not move the caret in the typed app.
+            var info = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+            if (!IsOwnWindowAt(info.pt)) MouseClicked?.Invoke();
+        }
+        return CallNextHookEx(_mouseHookId, nCode, wParam, lParam);
+    }
+
+    private static bool IsOwnWindowAt(POINT point)
+    {
+        IntPtr window = WindowFromPoint(point);
+        if (window == IntPtr.Zero) return false;
+        GetWindowThreadProcessId(window, out uint processId);
+        return processId == (uint)Environment.ProcessId;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSLLHOOKSTRUCT
+    {
+        public POINT pt;
+        public uint mouseData;
+        public uint flags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(POINT point);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
     private IntPtr Callback(int nCode, IntPtr wParam, IntPtr lParam)
     {
@@ -93,17 +164,21 @@ internal sealed class KeyboardHook : IDisposable
         if (nCode >= 0 && (isDown || isUp))
         {
             var info = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+            // Keys this app sent itself are ignored. Keys from other programs are ignored too,
+            // unless the test switch is on (see InputMarks).
+            bool own = info.dwExtraInfo == InputMarks.Own;
             bool injected = (info.flags & LLKHF_INJECTED) != 0;
+            bool real = !own && (!injected || InputMarks.TestInput);
             int vk = (int)info.vkCode;
 
             // Track Alt from its own key events. Asking Windows for the Alt state at the moment
             // U is pressed can be out of date when the keys are pressed close together.
-            if (!injected && vk is VK_MENU or VK_LMENU or VK_RMENU)
+            if (real && vk is VK_MENU or VK_LMENU or VK_RMENU)
             {
                 _altDown = isDown;
             }
 
-            if (!injected && isDown && vk == UndoVirtualKey && _altDown && !IsDown(VK_CONTROL))
+            if (real && isDown && vk == UndoVirtualKey && _altDown && !IsDown(VK_CONTROL))
             {
                 bool taken = AltUPressed?.Invoke() ?? false;
                 if (taken)
@@ -115,14 +190,70 @@ internal sealed class KeyboardHook : IDisposable
                 }
             }
 
+            // A correction is being typed: the user's keys wait here and are sent again, in order, afterwards.
+            // Modifier keys are not held: a held Alt release would stay down while the correction is typed,
+            // and Windows would then read the correction's keys as Alt shortcuts.
+            if (real && Holding && !IsModifierKey(vk))
+            {
+                KeyInput? input = isDown && !IsModifierKey(vk) ? Translate(info) : null;
+                Held.Enqueue(new HeldKey((ushort)vk, isDown, (info.flags & LLKHF_EXTENDED) != 0, input));
+                return (IntPtr)1;
+            }
+
             // Modifier keys alone (Alt, Shift, Ctrl, Win, Caps Lock) type nothing. Reporting them would
             // count as typing and would block undo, because Alt+U would look like typing after a correction.
-            if (!injected && isDown && !IsModifierKey(vk))
+            if (real && isDown && !IsModifierKey(vk))
             {
                 KeyPressed?.Invoke(Translate(info));
             }
         }
         return CallNextHookEx(_hookId, nCode, wParam, lParam);
+    }
+
+    private static KeyboardHook? _current;
+
+    /// <summary>True while a correction is being typed. Keys from the user are held until it is done.</summary>
+    private static volatile bool Holding;
+
+    private static readonly ConcurrentQueue<HeldKey> Held = new();
+
+    // Pause after each replayed key, the same as the one used when typing a correction.
+    private const int ReplayKeyStepMilliseconds = 12;
+
+    private readonly record struct HeldKey(ushort Vk, bool IsDown, bool Extended, KeyInput? Input);
+
+    /// <summary>
+    /// Runs action with the user's keys held, then sends the held keys again in the order they were pressed.
+    /// Holding stops only when the queue is empty, so no key can slip in between the held ones.
+    /// </summary>
+    public static T HoldKeysWhile<T>(Func<T> action)
+    {
+        Holding = true;
+        try
+        {
+            return action();
+        }
+        finally
+        {
+            ReplayHeldKeys();
+        }
+    }
+
+    private static void ReplayHeldKeys()
+    {
+        while (true)
+        {
+            while (Held.TryDequeue(out HeldKey held))
+            {
+                uint flags = (held.IsDown ? 0u : KEYEVENTF_KEYUP_KB) | (held.Extended ? 0x0001u : 0u);
+                keybd_event((byte)held.Vk, 0, flags, new UIntPtr(0x54595052u));
+                if (held.IsDown && held.Input is { } input) _current?.KeyPressed?.Invoke(input);
+                Thread.Sleep(ReplayKeyStepMilliseconds);
+            }
+            Holding = false;
+            if (Held.IsEmpty) return;
+            Holding = true;
+        }
     }
 
     // An unassigned virtual key that no application uses, so it has no visible effect.
@@ -131,8 +262,8 @@ internal sealed class KeyboardHook : IDisposable
 
     private static void SendHarmlessKey()
     {
-        keybd_event(VK_UNASSIGNED, 0, 0, UIntPtr.Zero);
-        keybd_event(VK_UNASSIGNED, 0, KEYEVENTF_KEYUP_KB, UIntPtr.Zero);
+        keybd_event(VK_UNASSIGNED, 0, 0, new UIntPtr(0x54595052u));
+        keybd_event(VK_UNASSIGNED, 0, KEYEVENTF_KEYUP_KB, new UIntPtr(0x54595052u));
     }
 
     [DllImport("user32.dll")]

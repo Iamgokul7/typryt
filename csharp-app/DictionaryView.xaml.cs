@@ -15,9 +15,13 @@ public partial class DictionaryView : UserControl
     private bool _engineReachable = true;
 
     /// <summary>One line in the list. Kind is "Personal" or "Never corrected".</summary>
-    public sealed record WordRow(string Word, bool Personal)
+    public sealed record WordRow(string Word, bool Personal, DateTime? Until = null)
     {
-        public string Kind => Personal ? "Personal" : "Never corrected";
+        public string Kind => Personal
+            ? "Personal"
+            : Until is null
+                ? "Never corrected"
+                : $"Never corrected until {Until.Value:dd MMM HH:mm}";
     }
 
     public DictionaryView()
@@ -40,11 +44,18 @@ public partial class DictionaryView : UserControl
 
         _engineReachable = true;
         _rows = snapshot.PersonalWords.Select(w => new WordRow(w, Personal: true))
-            .Concat(snapshot.NeverCorrect.Select(w => new WordRow(w, Personal: false)))
+            .Concat(snapshot.NeverCorrect.Select(w => new WordRow(w, Personal: false, Until: UntilFor(snapshot, w))))
             .OrderBy(r => r.Word, StringComparer.OrdinalIgnoreCase)
             .ToList();
         ShowRows();
         Status.Text = $"{snapshot.PersonalWords.Count} personal words. {snapshot.NeverCorrect.Count} words you undid are never corrected.";
+    }
+
+    /// <summary>When a blocked word stops being blocked, in local time; null when it never expires.</summary>
+    private static DateTime? UntilFor(DictionarySnapshot snapshot, string word)
+    {
+        if (!snapshot.NeverCorrectUntil.TryGetValue(word, out double? seconds) || seconds is null) return null;
+        return DateTimeOffset.FromUnixTimeMilliseconds((long)(seconds.Value * 1000)).LocalDateTime;
     }
 
     /// <summary>Shows the rows that match the search text.</summary>

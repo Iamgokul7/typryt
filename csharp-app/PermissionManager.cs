@@ -56,6 +56,7 @@ public sealed class AppConfig
     [JsonPropertyName("undo_letter")] public string UndoLetter { get; set; } = "U";
     [JsonPropertyName("toast_seconds")] public int ToastSeconds { get; set; } = 3;
     [JsonPropertyName("toast_corner")] public string ToastCorner { get; set; } = "bottom-right";
+    [JsonPropertyName("undo_block_hours")] public int UndoBlockHours { get; set; } = 24;
 }
 
 /// <summary>
@@ -133,6 +134,16 @@ public sealed class PermissionManager
     {
         get => Math.Clamp(_config.ToastSeconds, 1, 5);
         set => _config.ToastSeconds = Math.Clamp(value, 1, 5);
+    }
+
+    /// <summary>
+    /// How long a word stays blocked after the user undid it: 1, 24, or 168 hours, or 0 for forever.
+    /// Any other value is treated as 24 hours.
+    /// </summary>
+    public int UndoBlockHours
+    {
+        get => _config.UndoBlockHours is 1 or 24 or 168 or 0 ? _config.UndoBlockHours : 24;
+        set => _config.UndoBlockHours = value is 1 or 24 or 168 or 0 ? value : 24;
     }
 
     /// <summary>"top-left", "top-right", "bottom-left", or "bottom-right".</summary>

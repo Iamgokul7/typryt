@@ -29,7 +29,11 @@ public sealed class WordDetector
     private readonly StringBuilder _word = new();
     private CompletedWord? _pendingPeriod;
 
+    // Set when a code symbol touches the word, so words inside code are never corrected.
+    private bool _codeLike;
+
     private static readonly char[] Terminators = [' ', ',', '!', '?', ';', ':'];
+    private static readonly char[] CodeSymbols = ['{', '}', '(', ')', '_', '"'];
 
     private static readonly Regex MixedAlphanumeric = new(@"[A-Za-z]\d|\d[A-Za-z]", RegexOptions.Compiled);
     private static readonly Regex UrlOrEmail = new(@"(://|www\.|@|\.(com|org|net|io|dev)\b)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -56,6 +60,7 @@ public sealed class WordDetector
         if (key.IsBreak || key.Character is null)
         {
             _pendingPeriod = null;
+            _codeLike = false;
             _word.Clear();
             return null;
         }
@@ -72,7 +77,7 @@ public sealed class WordDetector
                 return null;
             }
             string text = _word.ToString();
-            _pendingPeriod = new CompletedWord(text, '.', ".", IsCorrectable(text));
+            _pendingPeriod = new CompletedWord(text, '.', ".", IsCorrectable(text) && !_codeLike);
             _word.Clear();
             return null;
         }
@@ -101,14 +106,16 @@ public sealed class WordDetector
             else if (_word.Length > 0)
             {
                 string text = _word.ToString();
-                result = new CompletedWord(text, c, c.ToString(), IsCorrectable(text));
+                result = new CompletedWord(text, c, c.ToString(), IsCorrectable(text) && !_codeLike);
             }
+            _codeLike = false;
             _word.Clear();
             return result;
         }
 
         // Any other printable character (symbols, brackets, slashes) breaks the word.
         _pendingPeriod = null;
+        if (Array.IndexOf(CodeSymbols, c) >= 0) _codeLike = true;
         _word.Clear();
         return null;
     }
