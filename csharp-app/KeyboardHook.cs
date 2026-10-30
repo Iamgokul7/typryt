@@ -171,6 +171,15 @@ internal sealed class KeyboardHook : IDisposable
             bool real = !own && (!injected || InputMarks.TestInput);
             int vk = (int)info.vkCode;
 
+            if (real)
+            {
+                TrackModifier(vk, isDown);
+
+                // Counted before the hold decision below, so a key typed just as a correction starts is
+                // either seen by that correction (which then cancels) or held by it. It cannot slip between.
+                if (isDown) Interlocked.Increment(ref _realKeyDowns);
+            }
+
             // Track Alt from its own key events. Asking Windows for the Alt state at the moment
             // U is pressed can be out of date when the keys are pressed close together.
             if (real && vk is VK_MENU or VK_LMENU or VK_RMENU)
@@ -190,14 +199,23 @@ internal sealed class KeyboardHook : IDisposable
                 }
             }
 
-            // A correction is being typed: the user's keys wait here and are sent again, in order, afterwards.
-            // Modifier keys are not held: a held Alt release would stay down while the correction is typed,
-            // and Windows would then read the correction's keys as Alt shortcuts.
-            if (real && Holding && !IsModifierKey(vk))
+            // A correction is being typed in an app that needs its keys paced (Notepad): the user's keys, Shift,
+            // Ctrl and Win included, wait here and are sent again, in order, afterwards. Alt and Caps Lock are not
+            // held: a held Alt release would stay down while the correction is typed, and Windows would then read
+            // the correction's keys as Alt shortcuts.
+            // The hold is re-checked under the lock that also ends it, so a key cannot be queued after the last
+            // replay has found the queue empty (it would stay swallowed until some later correction).
+            if (real && Holding && !IsAltOrCapsLock(vk))
             {
-                KeyInput? input = isDown && !IsModifierKey(vk) ? Translate(info) : null;
-                Held.Enqueue(new HeldKey((ushort)vk, isDown, (info.flags & LLKHF_EXTENDED) != 0, input));
-                return (IntPtr)1;
+                lock (HoldGate)
+                {
+                    if (Holding)
+                    {
+                        KeyInput? input = isDown && !IsModifierKey(vk) ? Translate(info, heldState: true) : null;
+                        Held.Enqueue(new HeldKey((ushort)vk, (ushort)info.scanCode, isDown, (info.flags & LLKHF_EXTENDED) != 0, input));
+                        return (IntPtr)1;
+                    }
+                }
             }
 
             // Modifier keys alone (Alt, Shift, Ctrl, Win, Caps Lock) type nothing. Reporting them would
@@ -217,18 +235,51 @@ internal sealed class KeyboardHook : IDisposable
 
     private static readonly ConcurrentQueue<HeldKey> Held = new();
 
+    // Taken only for a few instructions, never around a SendInput call (the hook would wait for it).
+    private static readonly object HoldGate = new();
+
     // Pause after each replayed key, the same as the one used when typing a correction.
     private const int ReplayKeyStepMilliseconds = 12;
 
-    private readonly record struct HeldKey(ushort Vk, bool IsDown, bool Extended, KeyInput? Input);
+    private readonly record struct HeldKey(ushort Vk, ushort Scan, bool IsDown, bool Extended, KeyInput? Input);
+
+    // Real key-downs seen so far. A correction compares it with the value from the key that finished the word.
+    private static int _realKeyDowns;
+
+    public static int RealKeyDownCount => Volatile.Read(ref _realKeyDowns);
+
+    // Shift, Ctrl and Win as the hook has seen them. While keys are held the system's own key state is not
+    // updated for them, so the text of a held key is worked out from these.
+    private static volatile bool _shiftTracked;
+    private static volatile bool _ctrlTracked;
+
+    private static void TrackModifier(int vk, bool down)
+    {
+        switch (vk)
+        {
+            case VK_SHIFT or 0xA0 or 0xA1:
+                _shiftTracked = down;
+                break;
+            case VK_CONTROL or 0xA2 or 0xA3:
+                _ctrlTracked = down;
+                break;
+        }
+    }
+
+    /// <summary>True while Shift, Ctrl or a Windows key (and Alt, when asked) is physically down.</summary>
+    public static bool ModifierKeyDown(bool includeAlt) =>
+        IsDown(VK_SHIFT) || IsDown(VK_CONTROL) || IsDown(0x5B) || IsDown(0x5C) || (includeAlt && IsDown(VK_MENU));
+
+    private static bool IsAltOrCapsLock(int vk) => vk is VK_MENU or VK_LMENU or VK_RMENU or VK_CAPITAL;
 
     /// <summary>
-    /// Runs action with the user's keys held, then sends the held keys again in the order they were pressed.
-    /// Holding stops only when the queue is empty, so no key can slip in between the held ones.
+    /// Runs action with the user's keys held, then sends the held keys again in the order they were pressed
+    /// (SendInput, with their scan codes). Holding stops only when the queue is empty, so no key can slip in
+    /// between the held ones. Used only for apps that need the replacement keys paced.
     /// </summary>
     public static T HoldKeysWhile<T>(Func<T> action)
     {
-        Holding = true;
+        lock (HoldGate) Holding = true;
         try
         {
             return action();
@@ -245,14 +296,19 @@ internal sealed class KeyboardHook : IDisposable
         {
             while (Held.TryDequeue(out HeldKey held))
             {
-                uint flags = (held.IsDown ? 0u : KEYEVENTF_KEYUP_KB) | (held.Extended ? 0x0001u : 0u);
-                keybd_event((byte)held.Vk, 0, flags, new UIntPtr(0x54595052u));
+                TextReplacer.SendRawKey(held.Vk, held.Scan, up: !held.IsDown, extended: held.Extended);
                 if (held.IsDown && held.Input is { } input) _current?.KeyPressed?.Invoke(input);
                 Thread.Sleep(ReplayKeyStepMilliseconds);
             }
-            Holding = false;
-            if (Held.IsEmpty) return;
-            Holding = true;
+            // Ending the hold and finding the queue empty is one step, under the lock the hook callback uses.
+            lock (HoldGate)
+            {
+                if (Held.IsEmpty)
+                {
+                    Holding = false;
+                    return;
+                }
+            }
         }
     }
 
@@ -276,12 +332,13 @@ internal sealed class KeyboardHook : IDisposable
         or 0xA4 or 0xA5;       // Left and right Alt
 
     /// <summary>Turns a raw key into the KeyInput the word detector understands.</summary>
-    private static KeyInput Translate(KBDLLHOOKSTRUCT info)
+    private static KeyInput Translate(KBDLLHOOKSTRUCT info, bool heldState = false)
     {
         int vk = (int)info.vkCode;
 
         // Shortcuts (Ctrl or Alt combinations) are never typed text.
-        if (IsDown(VK_CONTROL) || IsDown(VK_MENU))
+        bool ctrl = heldState ? _ctrlTracked : IsDown(VK_CONTROL);
+        if (ctrl || IsDown(VK_MENU))
         {
             return new KeyInput(null, IsBackspace: false, IsBreak: true);
         }
@@ -297,15 +354,15 @@ internal sealed class KeyboardHook : IDisposable
             return new KeyInput(null, IsBackspace: false, IsBreak: true);
         }
 
-        char? character = ToCharacter(vk, info.scanCode);
+        char? character = ToCharacter(vk, info.scanCode, heldState);
         return new KeyInput(character, IsBackspace: false, IsBreak: false);
     }
 
     /// <summary>Returns the printed character for a key, or null when it prints nothing.</summary>
-    private static char? ToCharacter(int vk, uint scanCode)
+    private static char? ToCharacter(int vk, uint scanCode, bool heldState)
     {
         var state = new byte[256];
-        if (IsDown(VK_SHIFT)) state[VK_SHIFT] = 0x80;
+        if (heldState ? _shiftTracked : IsDown(VK_SHIFT)) state[VK_SHIFT] = 0x80;
         if (IsToggled(VK_CAPITAL)) state[VK_CAPITAL] = 0x01;
 
         var buffer = new StringBuilder(4);

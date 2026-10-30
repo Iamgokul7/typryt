@@ -73,10 +73,12 @@ public partial class App : Application
     private long _cachedAtTicks;
 
     // FocusGeneration is the FocusGuard generation when the key was typed. A job from another generation is dropped.
-    private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence, bool UndoRequest = false, char? Typed = null, bool Backspace = false, int FocusGeneration = 0);
+    // KeyDownCount is KeyboardHook.RealKeyDownCount when the key was typed. A replacement is cancelled if more keys came since.
+    private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence, bool UndoRequest = false, char? Typed = null, bool Backspace = false, int FocusGeneration = 0, int KeyDownCount = -1);
 
-    // The FocusGuard generation of the job being worked on (worker thread only).
+    // The FocusGuard generation and key count of the job being worked on (worker thread only).
     private int _jobFocus;
+    private int _jobKeyDowns = -1;
 
     private sealed record ScreenWord(string Text, string Trail);
 
@@ -221,6 +223,7 @@ public partial class App : Application
         // A password field counts as a window where corrections are not allowed: its keys are not buffered at all.
         bool allowed = _permissions.MasterEnabled && !FocusGuard.Blocked && IsAllowedWindowActive();
         int focus = FocusGuard.Generation;
+        int keyDowns = KeyboardHook.RealKeyDownCount;
         if (allowed != _lastWindowAllowed)
         {
             // Focus moved in or out of Notepad: the engine's context no longer matches the text.
@@ -244,13 +247,13 @@ public partial class App : Application
         }
         else if (key.Character is { } typed && !key.IsBreak)
         {
-            _jobs.Writer.TryWrite(new Job(null, ResetContext: false, sequence, Typed: typed, FocusGeneration: focus));
+            _jobs.Writer.TryWrite(new Job(null, ResetContext: false, sequence, Typed: typed, FocusGeneration: focus, KeyDownCount: keyDowns));
         }
 
         var completed = _wordDetector.OnKey(key);
         if (completed is not null)
         {
-            _jobs.Writer.TryWrite(new Job(completed, ResetContext: false, sequence, FocusGeneration: focus));
+            _jobs.Writer.TryWrite(new Job(completed, ResetContext: false, sequence, FocusGeneration: focus, KeyDownCount: keyDowns));
         }
     }
 
@@ -269,7 +272,7 @@ public partial class App : Application
     private bool OnAltUPressed()
     {
         if (!_permissions.MasterEnabled || FocusGuard.Blocked || !IsAllowedWindowActive()) return false;
-        _jobs.Writer.TryWrite(new Job(null, ResetContext: false, 0, UndoRequest: true));
+        _jobs.Writer.TryWrite(new Job(null, ResetContext: false, 0, UndoRequest: true, KeyDownCount: KeyboardHook.RealKeyDownCount));
         return true;
     }
 
@@ -299,6 +302,7 @@ public partial class App : Application
                 {
                     if (job.UndoRequest)
                     {
+                        _jobKeyDowns = job.KeyDownCount;
                         await UndoLastCorrectionAsync(ct);
                     }
                     else if (job.ResetContext)
@@ -346,6 +350,7 @@ public partial class App : Application
     private bool FocusUnchanged(Job job)
     {
         _jobFocus = job.FocusGeneration;
+        _jobKeyDowns = job.KeyDownCount;
         if (job.FocusGeneration == FocusGuard.Generation) return true;
         _lastWord = null;
         _tail.Clear();
@@ -385,7 +390,7 @@ public partial class App : Application
         if (after is null || after == before) return;
         if (!await StillQuietAsync(keySequence, ct)) return;
 
-        ReplaceResult result = TextReplacer.ReplaceBeforeCaret(before, after);
+        ReplaceResult result = TextReplacer.ReplaceBeforeCaret(before, after, keyDownCount: _jobKeyDowns);
         Log.Write("punct", $"punctuation fix {before.Length} -> {after.Length} characters ({result})");
         _lastWord = null;
         if (result != ReplaceResult.Done)
@@ -503,11 +508,12 @@ public partial class App : Application
             // Rewrite the earlier word, its trail, this word, and its trail in one go.
             result = TextReplacer.ReplaceBeforeCaret(
                 previous.Text + previous.Trail + word.Text + word.Trail,
-                revisedPrevious + previous.Trail + corrected + word.Trail);
+                revisedPrevious + previous.Trail + corrected + word.Trail,
+                keyDownCount: _jobKeyDowns);
         }
         else if (corrected != word.Text)
         {
-            result = TextReplacer.ReplaceBeforeCaret(word.Text + word.Trail, corrected + word.Trail);
+            result = TextReplacer.ReplaceBeforeCaret(word.Text + word.Trail, corrected + word.Trail, keyDownCount: _jobKeyDowns);
         }
 
         if (result != ReplaceResult.Done)
@@ -609,7 +615,8 @@ public partial class App : Application
         var result = TextReplacer.ReplaceBeforeCaret(
             correction.Corrected + correction.Trail,
             correction.Original + correction.Trail,
-            requireReadable: true);
+            requireReadable: true,
+            keyDownCount: _jobKeyDowns);
         if (result != ReplaceResult.Done)
         {
             // The text was changed since the correction, so nothing is undone.

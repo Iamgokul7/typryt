@@ -32,6 +32,7 @@ public static class TextReplacer
     private const ushort VK_CAPITAL = 0x14;
     private const uint INPUT_KEYBOARD = 1;
     private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     private const uint KEYEVENTF_UNICODE = 0x0004;
 
     // Pause after each key event. Notepad drops keys that arrive in a burst. The timer is set to 1 ms
@@ -51,13 +52,26 @@ public static class TextReplacer
     /// When true (undo), the text must be read first, Notepad included, and nothing is changed if it cannot be
     /// read. Browsers cannot be read, so they are not refused.
     /// </param>
-    public static ReplaceResult ReplaceBeforeCaret(string expectedBefore, string newText, bool requireReadable = false)
+    /// <param name="keyDownCount">
+    /// KeyboardHook.RealKeyDownCount when the key that finished the word was typed. The replacement is cancelled,
+    /// and the text stays as typed, if any key has been typed since. -1 turns that check off.
+    /// </param>
+    public static ReplaceResult ReplaceBeforeCaret(string expectedBefore, string newText, bool requireReadable = false, int keyDownCount = -1)
     {
-        // The user's keys are held while the correction is typed, so they cannot land inside it.
-        return KeyboardHook.HoldKeysWhile(() => ReplaceCore(expectedBefore, newText, requireReadable));
+        // The user's keys are held while the replacement is typed and typed again, in order, afterwards. A single
+        // SendInput batch is not enough on its own: with a keyboard hook installed, a key typed at the same moment
+        // was measured landing inside the batch (137 of 200 runs at 20 ms per key).
+        bool batch = IsBrowserInFront();
+        return KeyboardHook.HoldKeysWhile(() => ReplaceCore(expectedBefore, newText, requireReadable, batch, keyDownCount));
     }
 
-    private static ReplaceResult ReplaceCore(string expectedBefore, string newText, bool requireReadable)
+    // Right before keys are sent: no key was typed since the word was finished, and no modifier key is down
+    // (a Shift that is down would turn the replacement's letters into capitals). Alt is waited for by the undo.
+    private static bool SafeToSend(int keyDownCount, bool requireReadable) =>
+        (keyDownCount < 0 || KeyboardHook.RealKeyDownCount == keyDownCount)
+        && !KeyboardHook.ModifierKeyDown(includeAlt: !requireReadable);
+
+    private static ReplaceResult ReplaceCore(string expectedBefore, string newText, bool requireReadable, bool batch, int keyDownCount)
     {
         if (expectedBefore.Length == 0) return ReplaceResult.Failed;
 
@@ -106,9 +120,16 @@ public static class TextReplacer
             }
         }
 
+        if (!SafeToSend(keyDownCount, requireReadable))
+        {
+            Log.Write("replace", "cancelled: a key was typed meanwhile or a modifier key is down; the text stays as typed");
+            return ReplaceResult.TextChanged;
+        }
+
         // Browsers take a whole batch of keys at once (sending it that way is what keeps them up with fast
-        // typing). Other apps, such as Notepad, drop keys that come in a burst, so each key is paced.
-        if (IsBrowserInFront())
+        // typing). Other apps, such as Notepad, drop keys that come in a burst (89 of 100 replacements came out
+        // wrong when measured), so each key is paced.
+        if (batch)
         {
             if (!Send(groups.SelectMany(g => g).ToList())) return ReplaceResult.Failed;
         }
@@ -244,6 +265,15 @@ public static class TextReplacer
         var array = inputs.ToArray();
         uint sent = SendInput((uint)array.Length, array, Marshal.SizeOf<INPUT>());
         return sent == array.Length;
+    }
+
+    /// <summary>Sends one key event (press or release) with its scan code, as the hook saw it. Used to type held keys again.</summary>
+    internal static bool SendRawKey(ushort virtualKey, ushort scanCode, bool up, bool extended)
+    {
+        uint flags = (up ? KEYEVENTF_KEYUP : 0u) | (extended ? KEYEVENTF_EXTENDEDKEY : 0u);
+        INPUT input = MakeKey(virtualKey, flags);
+        input.u.ki.wScan = scanCode;
+        return Send(new List<INPUT> { input });
     }
 
     private static INPUT MakeKey(ushort virtualKey, uint flags) => new()
