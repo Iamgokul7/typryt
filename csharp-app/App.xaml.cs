@@ -72,7 +72,11 @@ public partial class App : Application
     private bool _cachedAllowed;
     private long _cachedAtTicks;
 
-    private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence, bool UndoRequest = false, char? Typed = null, bool Backspace = false);
+    // FocusGeneration is the FocusGuard generation when the key was typed. A job from another generation is dropped.
+    private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence, bool UndoRequest = false, char? Typed = null, bool Backspace = false, int FocusGeneration = 0);
+
+    // The FocusGuard generation of the job being worked on (worker thread only).
+    private int _jobFocus;
 
     private sealed record ScreenWord(string Text, string Trail);
 
@@ -102,6 +106,7 @@ public partial class App : Application
         _keyboardHook.AltUPressed += OnAltUPressed;
         _keyboardHook.MouseClicked += OnMouseClicked;
         _keyboardHook.Install();
+        FocusGuard.Start();
         _keyboardHook.UndoVirtualKey = UndoKeyFor(_permissions.UndoLetter);
         _permissions.Changed += ApplySettings;
 
@@ -187,6 +192,7 @@ public partial class App : Application
     {
         _tray?.Dispose();
         _engine?.Dispose();
+        FocusGuard.Stop();
         _keyboardHook?.Dispose();
         _jobs.Writer.TryComplete();
         _shutdown.Cancel();
@@ -211,7 +217,9 @@ public partial class App : Application
     {
         int sequence = Interlocked.Increment(ref _keySequence);
 
-        bool allowed = _permissions.MasterEnabled && IsAllowedWindowActive();
+        // A password field counts as a window where corrections are not allowed: its keys are not buffered at all.
+        bool allowed = _permissions.MasterEnabled && !FocusGuard.Blocked && IsAllowedWindowActive();
+        int focus = FocusGuard.Generation;
         if (allowed != _lastWindowAllowed)
         {
             // Focus moved in or out of Notepad: the engine's context no longer matches the text.
@@ -235,13 +243,13 @@ public partial class App : Application
         }
         else if (key.Character is { } typed && !key.IsBreak)
         {
-            _jobs.Writer.TryWrite(new Job(null, ResetContext: false, sequence, Typed: typed));
+            _jobs.Writer.TryWrite(new Job(null, ResetContext: false, sequence, Typed: typed, FocusGeneration: focus));
         }
 
         var completed = _wordDetector.OnKey(key);
         if (completed is not null)
         {
-            _jobs.Writer.TryWrite(new Job(completed, ResetContext: false, sequence));
+            _jobs.Writer.TryWrite(new Job(completed, ResetContext: false, sequence, FocusGeneration: focus));
         }
     }
 
@@ -259,7 +267,7 @@ public partial class App : Application
     /// <summary>Runs on the hook thread. Takes Alt+U only in Notepad, and queues the undo.</summary>
     private bool OnAltUPressed()
     {
-        if (!_permissions.MasterEnabled || !IsAllowedWindowActive()) return false;
+        if (!_permissions.MasterEnabled || FocusGuard.Blocked || !IsAllowedWindowActive()) return false;
         _jobs.Writer.TryWrite(new Job(null, ResetContext: false, 0, UndoRequest: true));
         return true;
     }
@@ -304,11 +312,11 @@ public partial class App : Application
                     }
                     else if (job.Typed is char typedChar)
                     {
-                        await HandleTypedAsync(typedChar, job.KeySequence, ct);
+                        if (FocusUnchanged(job)) await HandleTypedAsync(typedChar, job.KeySequence, ct);
                     }
                     else if (job.Word is not null)
                     {
-                        await ProcessWordAsync(job.Word, job.KeySequence, ct);
+                        if (FocusUnchanged(job)) await ProcessWordAsync(job.Word, job.KeySequence, ct);
                     }
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -327,6 +335,20 @@ public partial class App : Application
         catch (OperationCanceledException)
         {
         }
+    }
+
+    /// <summary>
+    /// Focus moved since this key was typed: the text may belong to another control (a password field, for
+    /// example), so the job is dropped and the context cleared. Also records the generation for the checks
+    /// made just before the engine is contacted.
+    /// </summary>
+    private bool FocusUnchanged(Job job)
+    {
+        _jobFocus = job.FocusGeneration;
+        if (job.FocusGeneration == FocusGuard.Generation) return true;
+        _lastWord = null;
+        _tail.Clear();
+        return false;
     }
 
     /// <summary>
@@ -351,6 +373,12 @@ public partial class App : Application
     {
         string before = _tail.ToString();
         if (!NeedsPunctuationFix.IsMatch(before)) return;
+
+        if (!await FocusGuard.IsSafeAsync(_jobFocus))
+        {
+            _tail.Clear();
+            return;
+        }
 
         string? after = await _api.PunctuateAsync(before, ct);
         if (after is null || after == before) return;
@@ -410,6 +438,14 @@ public partial class App : Application
         if (!word.IsCorrectable)
         {
             _lastWord = null;
+            return;
+        }
+
+        // Nothing typed in a password field, or in a control that cannot be identified, reaches the engine.
+        if (!await FocusGuard.IsSafeAsync(_jobFocus))
+        {
+            _lastWord = null;
+            _tail.Clear();
             return;
         }
 
