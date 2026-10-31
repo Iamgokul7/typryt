@@ -132,6 +132,7 @@ public partial class App : Application
         _keyboardHook.UndoVirtualKey = UndoKeyFor(_permissions.UndoLetter);
         _permissions.Changed += ApplySettings;
 
+        _idlePeriodTimer = new System.Threading.Timer(IdlePeriodFired, null, Timeout.Infinite, Timeout.Infinite);
         _worker = Task.Run(() => ProcessJobsAsync(_shutdown.Token));
 
         // The engine starts in the background, so the splash is not held up by it.
@@ -278,6 +279,15 @@ public partial class App : Application
     {
         int sequence = Interlocked.Increment(ref _keySequence);
 
+        // Any key cancels the idle check for a period typed last. When that check already queued the correction, the
+        // word before the period is handled: it must not be completed (and corrected) a second time by this key.
+        _idlePeriodTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        if (_idlePeriodArmedSequence != 0 && Volatile.Read(ref _idlePeriodFiredSequence) == _idlePeriodArmedSequence)
+        {
+            _wordDetector.DropPendingPeriod();
+        }
+        _idlePeriodArmedSequence = 0;
+
         // A password field counts as a window where corrections are not allowed: its keys are not buffered at all.
         bool allowed = _permissions.MasterEnabled && !FocusGuard.Blocked && IsAllowedWindowActive();
         int focus = FocusGuard.Generation;
@@ -317,8 +327,11 @@ public partial class App : Application
             if (token != 0)
             {
                 _jobs.Writer.TryWrite(new Job(done, ResetContext: false, sequence, FocusGeneration: focus, KeyDownCount: keyDowns, HoldToken: token, HeldDelimiter: ending, KeyTicks: keyTicks));
+                // A closing bracket or quote ends the context, as it did before the word was corrected.
+                if (EndsContext(ending)) _jobs.Writer.TryWrite(new Job(null, ResetContext: true, sequence));
                 return;
             }
+            if (EndsContext(ending)) _jobs.Writer.TryWrite(new Job(null, ResetContext: true, sequence));
             _jobs.Writer.TryWrite(new Job(null, ResetContext: false, sequence, Typed: ending, FocusGeneration: focus, KeyDownCount: keyDowns));
             if (done is not null)
             {
@@ -349,6 +362,43 @@ public partial class App : Application
         {
             _jobs.Writer.TryWrite(new Job(completed, ResetContext: false, sequence, FocusGeneration: focus, KeyDownCount: keyDowns));
         }
+
+        // A period at the end of the text has no next key to finish its word. When nothing follows for a moment, the
+        // word before it is corrected (see IdlePeriodFired). Anything the user does first cancels this.
+        if (key.Character == '.' && _wordDetector.PendingPeriod is { IsCorrectable: true } pending && !InputMarks.OldPath)
+        {
+            _idlePeriod = new IdlePeriod(sequence, pending, focus, keyDowns, GetForegroundWindow());
+            _idlePeriodArmedSequence = sequence;
+            _idlePeriodTimer?.Change(IdlePeriodMilliseconds, Timeout.Infinite);
+        }
+    }
+
+    // How long a period must stand with nothing typed after it before the word before it is corrected.
+    private const int IdlePeriodMilliseconds = 600;
+
+    private sealed record IdlePeriod(int Sequence, CompletedWord Word, int FocusGeneration, int KeyDownCount, IntPtr Window);
+
+    private System.Threading.Timer? _idlePeriodTimer;
+    private volatile IdlePeriod? _idlePeriod;
+
+    // The key sequence of the period the idle check is waiting on (hook thread only), and of the one it queued (set by the timer).
+    private int _idlePeriodArmedSequence;
+    private int _idlePeriodFiredSequence;
+
+    /// <summary>
+    /// Runs on a timer thread, 600 ms after a period was typed. If no key, click, focus change or window change has
+    /// happened since, the word before the period is corrected, with the period already on screen.
+    /// </summary>
+    private void IdlePeriodFired(object? state)
+    {
+        var period = _idlePeriod;
+        if (period is null) return;
+        if (Volatile.Read(ref _keySequence) != period.Sequence) return;
+        if (FocusGuard.Generation != period.FocusGeneration || GetForegroundWindow() != period.Window) return;
+        if (!_permissions.MasterEnabled || FocusGuard.Blocked || !EngineState.Up) return;
+
+        Volatile.Write(ref _idlePeriodFiredSequence, period.Sequence);
+        _jobs.Writer.TryWrite(new Job(period.Word, ResetContext: false, period.Sequence, FocusGeneration: period.FocusGeneration, KeyDownCount: period.KeyDownCount));
     }
 
     /// <summary>
@@ -383,7 +433,7 @@ public partial class App : Application
     /// <summary>The virtual-key code of a letter. For A to Z it equals the uppercase character code.</summary>
     private static int UndoKeyFor(char letter) => char.ToUpperInvariant(letter);
 
-    private static bool IsHeldTerminator(char c) => c is ' ' or ',' or '!' or '?' or ';' or ':';
+    private static bool IsHeldTerminator(char c) => c is ' ' or ',' or '!' or '?' or ';' or ':' or ')' or ']' or '"';
 
     /// <summary>
     /// Holds the key being handled so its word can be corrected first. Returns the hold's token, or 0 when no hold is

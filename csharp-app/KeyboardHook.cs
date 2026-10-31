@@ -317,6 +317,12 @@ internal sealed class KeyboardHook : IDisposable
     /// <summary>True while the hook has seen Shift pressed and not yet released (including keys it is holding).</summary>
     internal static bool ShiftTracked => _shiftTracked;
 
+    // Whether Shift was down, as far as the app being typed into knows, when the current hold began: its press was
+    // delivered and its release has not been. The release may be among the held keys by now, so the live state is not used.
+    private static volatile bool _holdShiftDown;
+
+    internal static bool ShiftDownForApp => _holdShiftDown;
+
     private static void TrackModifier(int vk, bool down)
     {
         switch (vk)
@@ -358,6 +364,7 @@ internal sealed class KeyboardHook : IDisposable
             _holdCapMilliseconds = capMilliseconds;
             _holdWindow = GetForegroundWindow();
             _holdFocus = FocusGuard.Generation;
+            _holdShiftDown = _shiftTracked;
             Held.Enqueue(_pendingKey);
             Holding = true;
             _holdStartedByThisKey = true;

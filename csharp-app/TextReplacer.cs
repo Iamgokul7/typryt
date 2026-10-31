@@ -143,7 +143,7 @@ public static class TextReplacer
                 Log.Write("replace", "cancelled: a modifier key is down; the text stays as typed");
                 return ReplaceResult.TextChanged;
             }
-            if (KeyboardHook.ShiftTracked)
+            if (KeyboardHook.ShiftDownForApp)
             {
                 SendRawKey(VK_SHIFT, ShiftScanCode, up: true, extended: false);
                 shiftReleased = true;
@@ -157,7 +157,8 @@ public static class TextReplacer
 
         int shared = SharedPrefixLength(expectedBefore, newText);
         bool sent = SendEdit(expectedBefore, newText, capsLock, batch);
-        if (shiftReleased && KeyboardHook.ShiftTracked) SendRawKey(VK_SHIFT, ShiftScanCode, up: false, extended: false);
+        // Pressed again even if the user has let go meanwhile: the release is among the held keys and follows the delimiter.
+        if (shiftReleased) SendRawKey(VK_SHIFT, ShiftScanCode, up: false, extended: false);
         if (!sent) return ReplaceResult.Failed;
 
         Log.Write("replace", $"replaced {expectedBefore.Length} characters with {newText.Length}: {CountElements(expectedBefore, shared)} Backspaces and {newText.Length - shared} characters sent");

@@ -61,6 +61,8 @@ public sealed class WordDetector
         {
             _pendingPeriod = null;
             _codeLike = false;
+            _openBrackets = 0;
+            _quoteOpen = false;
             _word.Clear();
             return null;
         }
@@ -94,23 +96,39 @@ public sealed class WordDetector
             return null;
         }
 
-        if (Array.IndexOf(Terminators, c) >= 0)
+        if (Array.IndexOf(Terminators, c) >= 0) return EndWord(c);
+
+        // A bracket or quote that opens a word ("(recieve", "\"recieve") is not code, and its closing mark ends the word
+        // like a Space does. One attached to a word, or a closing mark with nothing opened, is code (foo(bar), 5").
+        bool atWordStart = _word.Length == 0 && _pendingPeriod is null;
+        if (c == '"')
         {
-            CompletedWord? result = null;
-            if (_pendingPeriod is not null)
+            if (_quoteOpen)
             {
-                // The period really ended the word, so the trail is the period plus this key.
-                result = new CompletedWord(_pendingPeriod.Text, '.', "." + c, _pendingPeriod.IsCorrectable);
-                _pendingPeriod = null;
+                _quoteOpen = false;
+                return EndWord(c);
             }
-            else if (_word.Length > 0)
+            if (atWordStart)
             {
-                string text = _word.ToString();
-                result = new CompletedWord(text, c, c.ToString(), IsCorrectable(text) && !_codeLike);
+                _quoteOpen = true;
+                return null;
             }
-            _codeLike = false;
-            _word.Clear();
-            return result;
+        }
+        else if (c is '(' or '[')
+        {
+            if (atWordStart)
+            {
+                _openBrackets++;
+                return null;
+            }
+        }
+        else if (c is ')' or ']')
+        {
+            if (_openBrackets > 0)
+            {
+                _openBrackets--;
+                return EndWord(c);
+            }
         }
 
         // Any other printable character (symbols, brackets, slashes) breaks the word.
@@ -118,6 +136,40 @@ public sealed class WordDetector
         if (Array.IndexOf(CodeSymbols, c) >= 0) _codeLike = true;
         _word.Clear();
         return null;
+    }
+
+    // Open brackets and an open double quote seen at the start of a word, until the line ends.
+    private int _openBrackets;
+    private bool _quoteOpen;
+
+    /// <summary>The word before a period that has just been typed, which waits for the next key. Null when there is none.</summary>
+    public CompletedWord? PendingPeriod => _pendingPeriod;
+
+    /// <summary>Forgets the period that waits for a next key, and the word before it. Used once that word has been handled.</summary>
+    public void DropPendingPeriod()
+    {
+        _pendingPeriod = null;
+        _word.Clear();
+    }
+
+    /// <summary>Ends the word with the delimiter c: the word (with a waiting period), or null when there is no word.</summary>
+    private CompletedWord? EndWord(char c)
+    {
+        CompletedWord? result = null;
+        if (_pendingPeriod is not null)
+        {
+            // The period really ended the word, so the trail is the period plus this key.
+            result = new CompletedWord(_pendingPeriod.Text, '.', "." + c, _pendingPeriod.IsCorrectable);
+            _pendingPeriod = null;
+        }
+        else if (_word.Length > 0)
+        {
+            string text = _word.ToString();
+            result = new CompletedWord(text, c, c.ToString(), IsCorrectable(text) && !_codeLike);
+        }
+        _codeLike = false;
+        _word.Clear();
+        return result;
     }
 
     /// <summary>
@@ -138,6 +190,8 @@ public sealed class WordDetector
         }
         _pendingPeriod = null;
         _codeLike = false;
+        _openBrackets = 0;
+        _quoteOpen = false;
         _word.Clear();
         return result;
     }
