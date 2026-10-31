@@ -97,7 +97,7 @@ public sealed class EngineLauncher : IDisposable
                     continue;
                 }
 
-                int waitSeconds = 1 << _restarts.Count;
+                int waitSeconds = Math.Min(1 << Math.Min(_restarts.Count, 4), 4);
                 await Task.Delay(TimeSpan.FromSeconds(waitSeconds), ct);
                 _restarts.Add(DateTime.UtcNow);
                 Log.Write("engine", $"watchdog: engine not answering, restart {_restarts.Count} of {MaxRestarts}");

@@ -381,6 +381,10 @@ public static class TextReplacer
         // Caps Lock flips the letters, so Shift is set the other way for letters while it is on.
         if (char.IsLetter(c) && capsLock) shift = !shift;
 
+        // A capital letter is sent as the character itself: a Shift press inside a quick batch was measured being lost
+        // in Chrome ("I'm" typed as "i'm"), while the character cannot lose it.
+        if (shift && char.IsLetter(c)) return false;
+
         ushort vk = (ushort)(scan & 0xFF);
         if (shift) batch.Add(MakeKey(VK_SHIFT, 0));
         batch.Add(MakeKey(vk, 0));

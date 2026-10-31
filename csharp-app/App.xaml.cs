@@ -494,7 +494,7 @@ public partial class App : Application
                         {
                             await HandleTypedAsync(delimiter, job.KeySequence, ct);
                         }
-                        if (++_wordsSinceHookLog >= 200)
+                        if (++_wordsSinceHookLog >= 25)
                         {
                             _wordsSinceHookLog = 0;
                             Log.Write("hook", KeyboardHook.CallbackSummary());
@@ -529,6 +529,7 @@ public partial class App : Application
         _jobFocus = job.FocusGeneration;
         _jobKeyDowns = job.KeyDownCount;
         if (job.FocusGeneration == FocusGuard.Generation) return true;
+        Log.Write("focus", "focus moved since the key was typed: the job is dropped and the context cleared");
         _lastWord = null;
         _tail.Clear();
         return false;
