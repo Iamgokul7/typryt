@@ -101,6 +101,9 @@ class CorrectResponse(BaseModel):
     comma_after_previous: bool = False
     # Set when this word settles the previous one. The client replaces that word on screen.
     previous_correction: PreviousCorrection | None = None
+    # A weaker guess for a word left unchanged (see spell_checker.CorrectionResult). Old clients ignore these two fields.
+    weak_correction: str | None = None
+    weak_confidence: float = 0.0
 
 
 class ResetRequest(BaseModel):
@@ -178,6 +181,8 @@ def correct(request: CorrectRequest) -> CorrectResponse:
         confidence=result.confidence,
         comma_after_previous=comma,
         previous_correction=previous_correction,
+        weak_correction=result.weak_correction if correction == request.word else None,
+        weak_confidence=result.weak_confidence if correction == request.word else 0.0,
     )
 
 

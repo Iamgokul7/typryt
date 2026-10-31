@@ -214,6 +214,9 @@ public sealed class CorrectResponse
     [JsonPropertyName("confidence")] public double Confidence { get; set; }
     [JsonPropertyName("comma_after_previous")] public bool CommaAfterPrevious { get; set; }
     [JsonPropertyName("previous_correction")] public PreviousCorrection? PreviousCorrection { get; set; }
+    /// <summary>A weaker guess for a word the engine left unchanged. Used only when the level's threshold is at or below WeakConfidence.</summary>
+    [JsonPropertyName("weak_correction")] public string? WeakCorrection { get; set; }
+    [JsonPropertyName("weak_confidence")] public double WeakConfidence { get; set; }
 }
 
 /// <summary>Response from POST /punctuate.</summary>

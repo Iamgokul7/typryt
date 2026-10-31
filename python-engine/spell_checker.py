@@ -81,6 +81,10 @@ class CorrectionResult:
     original: str
     correction: str
     confidence: float
+    # A weaker guess for a word the engine left unchanged. It is never in `correction`: the app applies it only
+    # when the user's level threshold is at or below weak_confidence (High, Extreme). Medium and Low ignore it.
+    weak_correction: str | None = None
+    weak_confidence: float = 0.0
 
 
 def _score_candidates(word: str, candidates, counts: dict, bigrams: dict, previous: str | None):
@@ -339,7 +343,7 @@ class SpellChecker:
         # Weaker guesses, below the Medium threshold: only the High and Extreme levels apply them.
         weak = self._weak_fix(word, lowered, previous, strict=capitalized)
         if weak is not None:
-            return weak
+            return CorrectionResult(word, word, 1.0, weak_correction=weak.correction, weak_confidence=weak.confidence)
         return CorrectionResult(word, word, 1.0)
 
     def _is_known_anywhere(self, lowered: str) -> bool:

@@ -768,7 +768,11 @@ public partial class App : Application
             return;
         }
 
-        string corrected = response.Confidence >= _permissions.Threshold ? response.Correction : word.Text;
+        // The engine's answer when it is confident enough for the level; failing that, its weaker guess when the level is
+        // eager enough (High, Extreme); otherwise the word as typed.
+        string corrected = response.Confidence >= _permissions.Threshold ? response.Correction
+            : response.WeakCorrection is { Length: > 0 } weak && response.WeakConfidence >= _permissions.Threshold ? weak
+            : word.Text;
 
         string? revisedPrevious = null;
         var previous = _lastWord;
