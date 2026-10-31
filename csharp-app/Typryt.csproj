@@ -8,9 +8,11 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>Typryt</AssemblyName>
-    <Version>1.0.1</Version>
-    <AssemblyVersion>1.0.1.0</AssemblyVersion>
-    <FileVersion>1.0.1.0</FileVersion>
+    <Version>1.0.2</Version>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
+    <FileVersion>1.0.2.0</FileVersion>
+    <InformationalVersion>1.0.2</InformationalVersion>
+    <ApplicationIcon>Assets\typryt.ico</ApplicationIcon>
     <Product>Typryt</Product>
     <Company>Gokul P</Company>
     <RootNamespace>Typryt</RootNamespace>

@@ -43,6 +43,8 @@ publish/
 installer/Output/
 
 python-engine/*.spec
+!python-engine/typryt-engine.spec
+installer/_old/*.exe
 
 # QA test runs, agent tooling and local state (not source)
 _test_run/
