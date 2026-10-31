@@ -2,94 +2,84 @@
 
 **Type it right.**
 
-Typryt works like mobile autocorrect, but for Windows 11 desktop. It listens to what you type in the apps you allow, corrects typos when you press Space, and lets you undo any correction with a single key press.
+Typryt is autocorrect for the Windows 11 desktop, in the style of a phone keyboard. It runs in the notification area, watches what you type in the apps you allow, fixes typos as you finish each word, and lets you undo a correction with one key press. Everything runs on your own PC.
+
+Version 1.0.2 (release candidate). Licensed under the PolyForm Strict License 1.0.0 (see `LICENSE.txt`): you may use it for any noncommercial purpose, but not redistribute or change it.
 
 ![Home tab, dark theme](docs/screenshots/home-dark.png)
 ![Settings tab, light theme](docs/screenshots/settings-light.png)
 
-## Features
+## What it does
 
-- **Corrects as you type:** typos, slang (`lyk` → `like`), apostrophes (`dont` → `don't`), and abbreviations (`brb` → `be right back`).
-- **Undo any correction:** a toast shows what changed, with an Undo button. Press **Alt + U** (or your own letter) within 3 seconds to undo. Undone words are not corrected again.
-- **Learns your words:** words you type often and no dictionary knows are added to your personal dictionary. You can add, search, and remove words in the Dictionary tab.
-- **Correction levels:** Low, Medium, High, or Extreme, from rules only to aggressive suggestions.
-- **Works where you allow it:** on first launch you choose the apps where corrections run. Browsers and Notepad are on by default.
-- **Home tab:** words fixed, today's count, undone count, and the last 50 corrections.
-- **Settings:** master on and off switch, abbreviations, auto-capitalize, learning, undo key, toast duration and corner, dark or light theme, and start with Windows.
-- **Tray icon:** runs quietly in the notification area. Right-click for on and off, the dashboard, correction history, and Exit.
-- **Private:** everything runs on your PC. Nothing is sent over the internet. Your settings, learned words, and history are stored in `%APPDATA%\Typryt`.
-
-## Requirements
-
-- Windows 11 (64-bit).
-- To build from source: .NET 10 SDK, Python 3.12, and Inno Setup 6 (only for the installer).
+- **Corrects a word when you finish it.** The word is corrected when you press **Space**, **Enter**, **Tab**, or one of `, ! ? ; : ) ] "`. A period at the very end of your text corrects the word before it after a short pause (about 0.6 seconds). Only the word is changed; the key you pressed is then delivered unchanged, so no key is lost, doubled or reordered.
+- **Typos, slang, apostrophes, abbreviations.** `teh` becomes `the`, `lyk` becomes `like`, `dont` becomes `don't`, `brb` becomes `be right back` (abbreviations can be switched off). Stretched words (`soooo`, `thankss`), days and months, a lone `i`, and a capital letter after a full stop, `!` or `?` are handled too. The first word of a text box is never capitalized, because Typryt cannot tell where a text box starts.
+- **Commas and spacing.** A comma is added after trigger words such as "however", double spaces and spaces before punctuation are fixed, `...` becomes an ellipsis, and doubled punctuation is collapsed.
+- **Leaves alone what it should.** Names, places, brands, technical words, ALL-CAPS words, numbers, words with digits, URLs, email addresses, file paths, code (identifiers with `_`, brackets attached to a word) and anything it does not recognise with strong evidence stay exactly as typed.
+- **Undo.** After a correction a small message shows what changed, with an **Undo** button. Press **Alt + U** (or the letter you choose) within 3 seconds, while the cursor is still directly after the corrected text, to restore exactly what you typed. This also works for comma insertions and for spacing and punctuation fixes. Undo applies to that one correction only: it does not block the word, and the word can be corrected again the next time. Undo is not offered after a correction made by Enter or Tab (the cursor has moved on).
+- **Learns your words.** A word that no dictionary knows, that Typryt left unchanged, and that you type three times is added to your personal dictionary and is never changed again (at any correction level). A word Typryt corrects is never learned, so a typo you keep making stays a typo. Learning can be switched off. You can add, search and remove words in the Dictionary tab.
+- **Correction levels.** Low (only exact rules: slang, abbreviations, apostrophes, curated misspellings), Medium (the default: also confident dictionary fixes), High (also single-key slips such as swapped letters), Extreme (also looser guesses; expect mistakes). Each level changes everything the level below it changes.
+- **Works where you allow it.** On first launch you choose the apps. Browsers (Chrome, Edge), Notepad and Word are on by default; you can turn any app off in Settings, and the change applies at once.
+- **Never in password fields.** Nothing typed into a password field, or into a control Typryt cannot identify, is sent to the correction engine.
+- **Safety net.** If something goes wrong that could cost keystrokes (a keyboard-hook fault, corrections repeatedly running late, the engine stopping for good), Typryt delivers every key it was holding, pauses itself, says so in the tray tooltip and in one message, and stays paused until you turn it on again from the tray menu or the master switch.
 
 ## Install
 
-Run `TyprytSetup-1.0.1.exe` (built with the steps below). It installs for your user account only, so no administrator password is needed. Typryt starts with a short splash animation and then sits in the tray.
+1. Download `Typryt-Setup-1.0.2.exe` and its `.sha256` file from the release page, and check the hash (`Get-FileHash Typryt-Setup-1.0.2.exe`).
+2. Run it. It installs for your user account only (`%LOCALAPPDATA%\Programs\Typryt`): no administrator password is needed. If Typryt is already running, the installer closes it first. Upgrading from an earlier version keeps your settings and dictionary.
+3. Windows may show **"Windows protected your PC"** (SmartScreen), because the installer is not code-signed. Choose *More info*, then *Run anyway*, if you trust the download.
+4. Typryt shows a short splash, then sits in the notification area (the **T|** icon). Right-click it for On/Off, the dashboard, correction history and Exit. Running the program a second time opens the dashboard.
+
+Uninstall from *Settings > Apps*. The uninstaller asks whether to also delete your settings and personal dictionary (the default is No; a silent uninstall always keeps them).
+
+## Use
+
+Just type. When a correction is made, a message appears for a few seconds; press **Alt + U** to undo it. The **Home** tab shows Words Fixed, today's count, Undone, the correction level and the last 50 corrections. **Settings** has: the master switch, start with Windows, abbreviations, capitalization, learning, the undo letter, how long the message stays, which corner it appears in, light/dark theme, and the list of allowed apps. Every setting takes effect at once and is kept after a restart.
+
+## Privacy
+
+- **Everything stays on your PC.** Typryt never uses the network except to talk to its own correction engine on `127.0.0.1` (this PC only).
+- **The engine is private to your session.** At every start Typryt picks a free port and a random token, starts the engine with them, and the engine refuses every request that does not carry the token. It listens on `127.0.0.1` only.
+- **What is stored, and where** (`%APPDATA%\Typryt`):
+  - `config.json`: your settings and the list of allowed apps.
+  - `stats.json`: counters and the **last 50 corrections** (the original and corrected word), shown on the Home tab.
+  - `personal_dict.json`: words you added or Typryt learned (readable, so the Dictionary tab can show them) and typing counts of unknown words kept only as salted hashes.
+  - `logs\`: daily logs of timings, lengths and outcomes. **Typed words are not written to the logs.** Logs older than 7 days are deleted.
+- Nothing typed in a password field reaches the engine.
+
+## Known limitations
+
+- **Unsigned installer.** Windows SmartScreen warns about it; some antivirus tools may flag any program that installs a keyboard hook (Typryt needs one to see your typing).
+- **Browsers and the text they hold.** Typryt cannot read the text in Chrome or Edge, so it corrects from the keys it saw. After you move the cursor (arrow keys, Home, End, a click), paste, undo in the app, or press Backspace past the start of the word you are typing, the next word is left as typed rather than risk editing the wrong text. In Notepad and Word, where the text can be read, the word before the cursor is found from the real text.
+- **Notepad is slower** than browsers: a correction there takes roughly a fifth of a second, and Typryt types the correction with short pauses so Notepad does not drop keys.
+- **Word** has its own AutoCorrect; the two can both change the same word. See the test notes below for what was observed.
+- **Firefox, WordPad and input methods (IME).** Not tested. Typryt does not hold keys while an input method is composing or a dead key is pending.
+- **Spelling accuracy depends on a time-limited dictionary lookup.** The first time you type a misspelling the dictionary lookup may not finish in time and the word is left as typed; the same misspelling is usually fixed the next time.
+- **Only English** (US dictionary; British spellings such as *neighbour* are accepted as valid and left alone).
 
 ## Build from source
 
-1. **Engine (Python):**
+Requirements: Windows 11 x64, .NET 10 SDK, Python 3.12, Inno Setup 6.
 
-   ```bash
-   cd python-engine
-   py -3.12 -m venv venv
-   venv\Scripts\python.exe -m pip install -r requirements.txt
-   ```
+```
+cd python-engine
+py -3.12 -m venv venv
+venv\Scripts\python.exe -m pip install -r requirements.txt
+```
 
-2. **App (.NET):**
+Run from the project: `dotnet build csharp-app\Typryt.csproj`, then `csharp-app\bin\Debug\net10.0-windows\Typryt.exe`. The app starts the engine from the venv by itself.
 
-   ```bash
-   cd csharp-app
-   dotnet build Typryt.csproj
-   ```
+Release build and installer, in one repeatable run:
 
-3. **Run from the project:** start the engine from `python-engine` with `venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000`, then run `csharp-app\bin\Debug\net10.0-windows\Typryt.exe`. The app also starts the engine by itself when it finds the venv.
+```
+powershell -ExecutionPolicy Bypass -File installer\build_release.ps1
+```
 
-4. **Release build and installer:**
+It builds the engine with PyInstaller and checks that every data file is inside it, runs the built engine and checks its answers, publishes the app (self-contained, win-x64), copies the engine in, compiles `installer\setup.iss` with Inno Setup (`%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe`, or pass `-Inno`), and writes `installer\Output\Typryt-Setup-<version>.exe` with a `.sha256` file next to it.
 
-   ```bash
-   python-engine\build_engine.ps1
-   ```
+## How a word is checked
 
-   ```bash
-   dotnet publish csharp-app\Typryt.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o publish\app
-   ```
+In this order: a lone `i`; laughter (`lol`, `haha`: never expanded); abbreviations (when on); slang; apostrophes; days and months; the curated misspelling map; stretched letters; then words that are known (the project lexicons of tech terms, names, places and brands; the word-frequency list; the Hunspell `en_US` dictionary, read through the pure-Python `spylls` package) are left alone. An unknown word is changed only on strong evidence (one edit away, a frequent target word, a typical typing slip or the dictionary's own first suggestion). Weaker guesses get a lower confidence and are applied only at the High and Extreme levels. Capitalization after a sentence end is applied last. Typryt does not use jamspell or any online service.
 
-   Copy `python-engine\dist\typryt-engine` into `publish\app\engine`, then compile `installer\setup.iss` with Inno Setup 6.
+## Credits and licences
 
-## How it works
-
-- **Keyboard hook:** a global low-level hook watches keys in every app and passes each finished word to the engine.
-- **Engine:** a local FastAPI server on `127.0.0.1:8000`. It corrects words with slang, apostrophe, and abbreviation rules, then symspellpy and Hunspell (via spylls).
-- **Replacement:** the corrected word is pasted over the typed one, and the clipboard is restored afterwards.
-
-## Tech stack
-
-- **App:** C#, .NET 10, WPF, Windows Forms (tray icon only), Win32 keyboard hook.
-- **Engine:** Python 3.12, FastAPI, Uvicorn, symspellpy, spylls (Hunspell dictionary reader), PyInstaller for the packaged build.
-- **Installer:** Inno Setup 6.
-
-## Project layout
-
-- `csharp-app\`: the Windows app (WPF).
-- `python-engine\`: the correction engine (FastAPI).
-- `shared\`: your local settings and data when running from the project (git-ignored).
-- `installer\`: the Inno Setup script.
-- `docs\screenshots\`: images used in this README.
-
-## Known limits in 1.0
-
-- Corrections run only in apps you allow. Notepad needs its keys sent one at a time, so very fast typing in Notepad (faster than about 5 keys a second) can skip some corrections. Nothing is garbled.
-- Words you undo are not corrected again until you remove them in the Dictionary tab.
-- The context-aware spelling layer (jamspell, Layer 3 of the plan) is not included. It needed a C++ build of jamspell that does not run with the Windows model in this project, and it only runs when the other layers disagree, so the rules, symspellpy and Hunspell cover the corrections. Corrections use these layers. The were/we're rule looks back up to three words, and the buffer keeps the last five.
-- If the app is ended from Task Manager, the engine it started may keep running. The next start reuses it.
-
-## For developers: automated tests
-
-The app ignores keys sent by other programs. For automated tests only, set the environment variable `TYPRYT_TEST_INPUT=1` before starting the app, so keys sent by a test script are counted. It is off by default, and a normal run never reads it as on. The app's own corrections are always ignored, so they cannot trigger themselves.
-
-## License
-
-Source available. The code is publicly viewable. No redistribution, resale, or repackaging without explicit written permission from Gokul P. See [LICENSE.txt](LICENSE.txt).
+Third-party components and their licences are listed in `THIRD_PARTY_NOTICES.md`.
