@@ -7,6 +7,7 @@ confidence meets the user's level threshold.
 """
 
 import math
+import re
 from dataclasses import dataclass
 from importlib.resources import files
 
@@ -32,6 +33,10 @@ BIGRAM_WEIGHT = 0.02
 # Words this short are changed only to a very common word; rarer matches ("ing" -> "ign") are left as typed.
 SHORT_WORD_MAX_LENGTH = 3
 SHORT_WORD_MIN_COUNT = 10_000_000
+
+
+# lol, lool, lols, lolol, lmao, lmfao, rofl, rotfl, haha, hehe, hahaha, hehehe
+_LAUGHTER = re.compile(r"^(?:l+o+l+[sz]?|(?:lo)+l+|lm+f?a+o+|ro+f+l+|rotfl|(?:ha|he)(?:ha|he)+h?)$")
 
 
 @dataclass
@@ -76,6 +81,20 @@ class SpellChecker:
         self._symspell.load_bigram_dictionary(str(files("symspellpy") / BIGRAM_NAME), term_index=0, count_index=2)
         self._hunspell = HunspellChecker()
 
+    @staticmethod
+    def _alphanumeric_rule(word: str, abbreviations_enabled: bool) -> CorrectionResult | None:
+        """Letter-and-number slang. Returns None when the token is not an entry in either table."""
+        lowered = word.lower()
+        abbreviation = ABBREVIATIONS.get(lowered)
+        if abbreviation is not None:
+            if abbreviations_enabled:
+                return CorrectionResult(word, _match_case(word, abbreviation), RULE_CONFIDENCE)
+            return CorrectionResult(word, word, 1.0)
+        slang = SLANG.get(lowered)
+        if slang is not None:
+            return CorrectionResult(word, _match_case(word, slang), RULE_CONFIDENCE)
+        return None
+
     def _is_known_word(self, lowered: str) -> bool:
         """True when the word is in the frequency list or in Hunspell."""
         return lowered in self._symspell.words or self._hunspell.is_valid(lowered)
@@ -96,10 +115,15 @@ class SpellChecker:
                 return CorrectionResult(word, fixed, RULE_CONFIDENCE)
             return CorrectionResult(word, word, 1.0)
 
-        # Numbers, mixed alphanumerics, and punctuation pass through.
-        # ALL CAPS (LOL, CEO) is never corrected.
-        if not word.isalpha() or (len(word) > 1 and word.isupper()):
+        # ALL CAPS (LOL, CEO, G2G) is never corrected.
+        if len(word) > 1 and word.isupper():
             return CorrectionResult(word, word, 1.0)
+
+        # Numbers, mixed alphanumerics, and punctuation pass through. The one exception is letter-and-number slang
+        # (gr8, b4, l8r, 2day, g2g): only a token that is exactly an entry in the slang or abbreviation table is expanded.
+        if not word.isalpha():
+            ruled = self._alphanumeric_rule(word, abbreviations_enabled) if word.isalnum() else None
+            return ruled or CorrectionResult(word, word, 1.0)
 
         # Personal words and words the user undid come first, before every other rule.
         if self._learner.should_skip(word):
@@ -131,7 +155,20 @@ class SpellChecker:
         if lowered == "i":
             return CorrectionResult(word, "I", RULE_CONFIDENCE)
 
+        # Laughter and reaction tokens (lol, lmao, haha) are never expanded, with abbreviations on or off, and
+        # are never sent on to the spell checker.
+        if _LAUGHTER.match(lowered):
+            return CorrectionResult(word, word, 1.0)
+
         # Layer 0: slang, apostrophe, and abbreviation rules are deterministic.
+        # An abbreviation is expanded when the setting is on. When it is off the word is passed through as typed:
+        # it must not fall through to the spell checker, which would "correct" it (brb -> bob).
+        abbreviation = ABBREVIATIONS.get(lowered)
+        if abbreviation is not None:
+            if abbreviations_enabled:
+                return CorrectionResult(word, _match_case(word, abbreviation), RULE_CONFIDENCE)
+            return CorrectionResult(word, word, 1.0)
+
         slang = SLANG.get(lowered)
         if slang is not None:
             return CorrectionResult(word, _match_case(word, slang), RULE_CONFIDENCE)
@@ -139,11 +176,6 @@ class SpellChecker:
         apostrophe = apply_apostrophe(word, is_valid=self._is_known_word)
         if apostrophe is not None:
             return CorrectionResult(word, apostrophe, RULE_CONFIDENCE)
-
-        if abbreviations_enabled:
-            abbreviation = ABBREVIATIONS.get(lowered)
-            if abbreviation is not None:
-                return CorrectionResult(word, _match_case(word, abbreviation), RULE_CONFIDENCE)
 
         # Words of two letters or fewer are too short for similarity matching to be reliable.
         if len(lowered) <= 2:
