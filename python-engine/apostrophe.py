@@ -5,6 +5,8 @@ Only forms that are unambiguous are listed here. Context-dependent pairs
 handled in Phase 4, not here.
 """
 
+import re
+
 APOSTROPHE = {
     # Negations
     "dont": "don't",
@@ -53,6 +55,18 @@ APOSTROPHE = {
     "mightve": "might've",
     "mustve": "must've",
 }
+
+
+_LONE_I_CONTRACTION = re.compile(r"^i(['’])(m|ll|ve|d)$")
+
+
+def fix_apostrophe_word(word: str) -> str | None:
+    """A word that already has an apostrophe (straight or curly) is a finished contraction and stays as typed.
+    The one fix is the lone lowercase I: i'm -> I'm, i'll -> I'll, i've -> I've, i'd -> I'd. The typed apostrophe
+    is kept. Returns None when nothing needs fixing."""
+    if _LONE_I_CONTRACTION.match(word):
+        return "I" + word[1:]
+    return None
 
 
 def apply_apostrophe(word: str) -> str | None:

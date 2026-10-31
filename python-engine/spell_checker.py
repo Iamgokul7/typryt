@@ -13,7 +13,7 @@ from importlib.resources import files
 from symspellpy import SymSpell, Verbosity
 
 from abbreviation_dict import ABBREVIATIONS
-from apostrophe import apply_apostrophe
+from apostrophe import apply_apostrophe, fix_apostrophe_word
 from capitalization import capitalize_for_context
 from confidence import (
     HUNSPELL_SUGGESTION_CONFIDENCE,
@@ -84,6 +84,14 @@ class SpellChecker:
         learning_enabled: bool = True,
         auto_capitalize: bool = True,
     ) -> CorrectionResult:
+        # A word with an apostrophe (straight or curly) is already a contraction: only a lone lowercase i
+        # (i'm, i'll, i've, i'd) is fixed, everything else is left as typed.
+        if "'" in word or "’" in word:
+            fixed = fix_apostrophe_word(word)
+            if fixed is not None:
+                return CorrectionResult(word, fixed, RULE_CONFIDENCE)
+            return CorrectionResult(word, word, 1.0)
+
         # Numbers, mixed alphanumerics, and punctuation pass through.
         # ALL CAPS (LOL, CEO) is never corrected.
         if not word.isalpha() or (len(word) > 1 and word.isupper()):
