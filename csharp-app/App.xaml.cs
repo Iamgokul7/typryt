@@ -770,7 +770,9 @@ public partial class App : Application
 
         // The engine's answer when it is confident enough for the level; failing that, its weaker guess when the level is
         // eager enough (High, Extreme); otherwise the word as typed.
-        string corrected = response.Confidence >= _permissions.Threshold ? response.Correction
+        // An unchanged answer carries confidence 1.0 ("leave it"), so the weak guess is looked at when the answer is unchanged.
+        string corrected = response.Correction != word.Text
+            ? (response.Confidence >= _permissions.Threshold ? response.Correction : word.Text)
             : response.WeakCorrection is { Length: > 0 } weak && response.WeakConfidence >= _permissions.Threshold ? weak
             : word.Text;
 
