@@ -17,7 +17,7 @@ The engine's own word lists live in `python-engine/lexicons/` and are loaded onc
 
 Every list above was **written for this project** by the Typryt developer from general knowledge. No third-party
 list, dataset or text was copied, so there is no licence to carry: the files are covered by the project's own
-licence (`LICENSE.txt`). Names, places, brands and words are facts, not creative works, and appear here only as
+licence (`LICENSE.txt`, PolyForm Strict 1.0.0). Names, places, brands and words are facts, not creative works, and appear here only as
 plain lowercase tokens.
 
 Entries that equal a word of the frozen QA held-out set were deliberately left out, so that set stays unseen
@@ -33,5 +33,9 @@ entry is a held-out word.
 ## Other data the engine uses (unchanged)
 
 - `symspellpy` frequency dictionary and bigram dictionary, shipped with the symspellpy package (MIT licence).
-- `dictionaries/en_US.aff` and `en_US.dic`, the Hunspell en_US dictionary read through the pure-Python `spylls`
-  package (the dictionary's own licence is in its files; spylls is MPL 2.0).
+- `dictionaries/en_US.aff` and `en_US.dic`, the Hunspell en_US dictionary read through the pure-Python `spylls` package.
+  The two files carry **no licence text** in this repository, so their licence is **UNCONFIRMED**: they match the
+  SCOWL-derived en_US dictionary (a permissive Kevin Atkinson / Ispell BSD licence); the text and the open question are in
+  `THIRD_PARTY_NOTICES.md`.
+- `spylls` 0.1.7: the licence file inside the package is the Mozilla Public License 2.0 although the package metadata says
+  MIT. They disagree, so it is treated as MPL 2.0 and its notice ships in `THIRD_PARTY_NOTICES.md`.
