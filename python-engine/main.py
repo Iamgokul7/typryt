@@ -148,7 +148,8 @@ def correct(request: CorrectRequest) -> CorrectResponse:
     buffer = buffers.get(request.session_id)
     previous = buffer.previous()
 
-    comma = previous is not None and needs_comma_after(previous, request.word)
+    # No comma after a word that already has punctuation after it ("instead. A ..." must not become "instead,. A ...").
+    comma = previous is not None and not request.previous_trail.strip() and needs_comma_after(previous, request.word)
 
     previous_correction = None
     if previous is not None:

@@ -784,7 +784,7 @@ public partial class App : Application
             {
                 revisedPrevious = response.PreviousCorrection.Correction;
             }
-            else if (response.CommaAfterPrevious)
+            else if (response.CommaAfterPrevious && previous.Trail.Trim().Length == 0)
             {
                 revisedPrevious = previous.Text + ",";
             }
