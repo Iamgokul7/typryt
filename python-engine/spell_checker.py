@@ -38,6 +38,11 @@ MIN_TARGET_COUNT = 1_000_000       # the replacement must be a frequent word
 TYPO_LIKE_PENALTY = 0.3            # one swapped pair, one neighbouring key, or one doubled letter
 AMBIGUITY_MARGIN = 0.03            # two candidates this close in score: leave the word alone
 
+# Weak guesses (see _weak_fix) stay below the Medium threshold of 0.90 so that Medium and Low never apply them.
+WEAK_MIN_TARGET_COUNT = 100_000
+WEAK_BASE_CONFIDENCE = 0.50
+WEAK_MAX_CONFIDENCE = 0.85
+
 
 # lol, lool, lols, lolol, lmao, lmfao, rofl, rotfl, haha, hehe, hahaha, hehehe
 _LAUGHTER = re.compile(r"^(?:l+o+l+[sz]?|(?:lo)+l+|lm+f?a+o+|ro+f+l+|rotfl|(?:ha|he)(?:ha|he)+h?)$")
@@ -114,6 +119,12 @@ class SpellChecker:
         self._hunspell = HunspellChecker()
         # The lexicons and the misspelling map are read once, here, into sets and a dict.
         self._lexicons = Lexicons()
+
+    def warm_up(self) -> None:
+        """Loads what is read lazily on first use, so the first real words are answered as fast as the later ones."""
+        for word in ("recieve", "definately", "seperate"):
+            self._symspell.lookup(word, Verbosity.ALL, max_edit_distance=MAX_EDIT_DISTANCE)
+            self._hunspell.suggest_within_budget(word, budget=5.0)
 
     @staticmethod
     def _day_or_month(word: str, lowered: str, previous: str | None) -> CorrectionResult | None:
@@ -297,9 +308,12 @@ class SpellChecker:
             return CorrectionResult(word, word, 1.0)
 
         # A capitalized word that is not at the start of a sentence is a name, a brand or a loanword: never corrected.
+        # Learning still counts it, so a name typed again and again becomes a personal word.
         capitalized = word[0].isupper()
         sentence_start = _at_sentence_start(previous_word)
         if capitalized and not sentence_start:
+            if learning_enabled and not self._is_known_anywhere(lowered):
+                self._learner.observe_unknown(word)
             return CorrectionResult(word, word, 1.0)
 
         # Words that are known: the lexicons, the informal words, the frequency list (distance 0), Hunspell.
@@ -316,11 +330,63 @@ class SpellChecker:
         if fixed is not None:
             return fixed
 
-        # No dictionary knows this word and nothing came close: count it. Enough typings make it a personal
-        # word (the learner decides).
-        if learning_enabled and not suggestions:
-            self._learner.observe_unknown(word)
+        # No dictionary knows this word and the engine did not change it with confidence: count it, whether or not a
+        # distant dictionary word came close (Gokulify is not "Nullify"). Enough typings make it a personal word,
+        # which is then left alone at every level. A word the engine corrected is never counted.
+        if learning_enabled and self._learner.observe_unknown(word):
+            return CorrectionResult(word, word, 1.0)
+
+        # Weaker guesses, below the Medium threshold: only the High and Extreme levels apply them.
+        weak = self._weak_fix(word, lowered, previous, strict=capitalized)
+        if weak is not None:
+            return weak
         return CorrectionResult(word, word, 1.0)
+
+    def _is_known_anywhere(self, lowered: str) -> bool:
+        """A word some dictionary, lexicon or informal list knows."""
+        return (
+            lowered in self._lexicons.words
+            or lowered in INFORMAL_WORDS
+            or lowered in self._symspell.words
+            or self._hunspell.is_valid(lowered)
+        )
+
+    def _weak_fix(self, word: str, lowered: str, previous: str | None, strict: bool) -> CorrectionResult | None:
+        """A guess that did not pass the strong gates. Its confidence is graded below the Medium threshold
+        (0.90): 0.5 to 0.85, by how many of the signs of a real typing slip it shows. Medium never applies it;
+        High (0.60) and Extreme (0.50) apply the stronger and the weaker guesses."""
+        if len(lowered) < MIN_FIX_WORD_LENGTH:
+            return None
+        found = self._symspell.lookup(lowered, Verbosity.ALL, max_edit_distance=MAX_EDIT_DISTANCE)
+        if not found:
+            return None
+        distance_one = [c for c in found if c.distance == 1]
+        pool = distance_one or found
+        scored = _score_candidates(lowered, pool, self._symspell.words, self._symspell.bigrams, previous)
+        best_score, best = scored[0]
+        count = self._symspell.words.get(best.term, 0)
+        if count < WEAK_MIN_TARGET_COUNT:
+            return None
+
+        margin = len(scored) == 1 or best_score - scored[1][0] >= AMBIGUITY_MARGIN
+        frequent = count >= MIN_TARGET_COUNT
+        typo_like = len(lowered) >= MIN_TYPO_LIKE_LENGTH and edit_penalty(lowered, best.term) <= TYPO_LIKE_PENALTY
+        known = self._hunspell.cached_suggestions(lowered)
+        agrees = known is not None and known[:1] == [best.term]    # only an answer Hunspell already gave: asking would hold up the next corrections
+
+        if best.distance == 1 and (typo_like or agrees):
+            # A slip of the kind a typist makes (swapped pair, neighbouring key, doubled letter) or Hunspell's own pick: High applies it.
+            confidence = 0.62 + (0.08 if margin else 0) + (0.05 if frequent else 0) + (0.08 if typo_like and agrees else 0)
+        elif best.distance == 1:
+            confidence = 0.50 + (0.04 if margin else 0) + (0.03 if frequent else 0)         # Extreme only
+        else:
+            confidence = 0.50 + (0.03 if margin else 0) + (0.02 if frequent else 0)         # Extreme only
+        if strict:
+            confidence -= 0.12      # a capitalized word at a sentence start may be a name
+        confidence = round(min(WEAK_MAX_CONFIDENCE, confidence), 3)
+        if confidence < WEAK_BASE_CONFIDENCE:
+            return None
+        return CorrectionResult(word, _match_case(word, best.term), confidence)
 
     def _strong_fix(self, word: str, lowered: str, previous: str | None, strict: bool) -> CorrectionResult | None:
         """A correction for an unknown word, or None (leave it as typed). Every one of these must hold:

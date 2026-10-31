@@ -45,6 +45,12 @@ class HunspellChecker:
     def suggest(self, word: str) -> list[str]:
         return list(self._dictionary.suggest(word))
 
+    def cached_suggestions(self, word: str) -> list[str] | None:
+        """The suggestions already known for the word, or None. Never starts a computation, so it cannot take a
+        worker away from a correction that is waiting for its own answer."""
+        with self._lock:
+            return self._cache.get(word.lower())
+
     def suggest_within_budget(self, word: str, budget: float = SUGGEST_BUDGET_SECONDS) -> list[str] | None:
         """The first suggestions (lowercase), or None when they were not ready within the budget. A suggestion that
         finishes late is cached, so the same word is answered at once next time."""
