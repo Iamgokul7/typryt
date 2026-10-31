@@ -6,6 +6,7 @@ confidence between 0 and 1; the C# side applies a correction only when that
 confidence meets the user's level threshold.
 """
 
+import itertools
 import math
 import re
 from dataclasses import dataclass
@@ -24,7 +25,7 @@ from confidence import (
 from hunspell_checker import HunspellChecker
 from keyboard import edit_penalty
 from learner import Learner
-from slang_dict import SLANG
+from slang_dict import INFORMAL_WORDS, SLANG
 
 DICTIONARY_NAME = "frequency_dictionary_en_82_765.txt"
 BIGRAM_NAME = "frequency_bigramdictionary_en_243_342.txt"
@@ -37,6 +38,20 @@ SHORT_WORD_MIN_COUNT = 10_000_000
 
 # lol, lool, lols, lolol, lmao, lmfao, rofl, rotfl, haha, hehe, hahaha, hehehe
 _LAUGHTER = re.compile(r"^(?:l+o+l+[sz]?|(?:lo)+l+|lm+f?a+o+|ro+f+l+|rotfl|(?:ha|he)(?:ha|he)+h?)$")
+
+
+# A run of one repeated letter.
+_RUN = re.compile(r"(.)\1+")
+
+STRETCHED_CONFIDENCE = 0.93
+
+# A word this frequent in the frequency list is a real word even when Hunspell does not list it.
+COMMON_WORD_COUNT = 1_000_000
+
+
+def _at_sentence_start(previous_word: str | None) -> bool:
+    """No word before it (the start of the text), or the word before it ended a sentence."""
+    return previous_word is None or previous_word.endswith((".", "!", "?"))
 
 
 @dataclass
@@ -80,6 +95,60 @@ class SpellChecker:
             raise RuntimeError(f"Could not load symspellpy dictionary: {dictionary_path}")
         self._symspell.load_bigram_dictionary(str(files("symspellpy") / BIGRAM_NAME), term_index=0, count_index=2)
         self._hunspell = HunspellChecker()
+
+    def _stretched(self, word: str, lowered: str, previous_word: str | None, abbreviations_enabled: bool) -> CorrectionResult | None:
+        """A word with repeated letters that is not a word as typed (okk, sooo, thankss, plss, heyyy).
+
+        Only runs of three or more of one letter, or a doubled last letter, count as stretching; the other doubled
+        letters of real words (coffee, committee) are never touched, and a word that is valid as typed is left alone.
+        Each collapsed form is looked up again through the rules and the dictionaries and is used only when it is a
+        confident match; otherwise the word is left unchanged.
+        """
+        runs = [m for m in _RUN.finditer(lowered)]
+        stretch_runs = [m for m in runs if len(m.group()) >= 3 or (len(m.group()) == 2 and m.end() == len(lowered))]
+        if not stretch_runs or len(stretch_runs) > 3:
+            return None
+        if self._is_valid_word(lowered):
+            return None
+        # Capitalized words are names unless they start a sentence ("Heyyy there").
+        if word[0].isupper() and not _at_sentence_start(previous_word):
+            return None
+
+        # For each stretched run: keep two letters first (cool, good, really), then one (so, love, no).
+        options = [(2, 1) if len(m.group()) >= 3 else (1,) for m in stretch_runs]
+        for lengths in itertools.product(*options):
+            pieces, last = [], 0
+            for m, length in zip(stretch_runs, lengths):
+                pieces.append(lowered[last:m.start()] + m.group()[0] * length)
+                last = m.end()
+            pieces.append(lowered[last:])
+            candidate = "".join(pieces)
+            if candidate == lowered or len(candidate) < 2:
+                continue
+            known = self._known_form(candidate, abbreviations_enabled)
+            if known is not None:
+                return CorrectionResult(word, _match_case(word, known), STRETCHED_CONFIDENCE)
+        return None
+
+    def _known_form(self, candidate: str, abbreviations_enabled: bool) -> str | None:
+        """What a collapsed word means, when it is a confident match: a slang or abbreviation entry, a contraction, or a real word."""
+        abbreviation = ABBREVIATIONS.get(candidate)
+        if abbreviation is not None:
+            return abbreviation if abbreviations_enabled else candidate
+        slang = SLANG.get(candidate)
+        if slang is not None:
+            return slang
+        apostrophe = apply_apostrophe(candidate, is_valid=self._is_known_word)
+        if apostrophe is not None:
+            return apostrophe
+        # Hunspell, or a very common word in the frequency list (Hunspell does not list lowercase "ok").
+        if self._is_valid_word(candidate) or self._symspell.words.get(candidate, 0) >= COMMON_WORD_COUNT:
+            return candidate
+        return None
+
+    def _is_valid_word(self, lowered: str) -> bool:
+        """A real word as typed: Hunspell knows it, or it is a known informal word."""
+        return lowered in INFORMAL_WORDS or self._hunspell.is_valid(lowered)
 
     @staticmethod
     def _alphanumeric_rule(word: str, abbreviations_enabled: bool) -> CorrectionResult | None:
@@ -176,6 +245,11 @@ class SpellChecker:
         apostrophe = apply_apostrophe(word, is_valid=self._is_known_word)
         if apostrophe is not None:
             return CorrectionResult(word, apostrophe, RULE_CONFIDENCE)
+
+        # A stretched word (okk, sooo, thankss, plss): collapse the repeated letters and look again.
+        stretched = self._stretched(word, lowered, previous_word, abbreviations_enabled)
+        if stretched is not None:
+            return stretched
 
         # Words of two letters or fewer are too short for similarity matching to be reliable.
         if len(lowered) <= 2:
