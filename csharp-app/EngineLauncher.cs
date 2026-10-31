@@ -21,7 +21,11 @@ public sealed class EngineLauncher : IDisposable
     /// <summary>Starts the engine unless one is already answering. Returns true when an engine is available.</summary>
     public bool StartIfNeeded()
     {
-        if (IsRunning()) return true;
+        if (IsRunning())
+        {
+            EngineState.MarkUp();
+            return true;
+        }
 
         var startInfo = StartInfo();
         if (startInfo is null) return false;
@@ -32,11 +36,101 @@ public sealed class EngineLauncher : IDisposable
         var deadline = DateTime.UtcNow.AddSeconds(StartupTimeoutSeconds);
         while (DateTime.UtcNow < deadline)
         {
-            if (IsRunning()) return true;
+            if (IsRunning())
+            {
+                EngineState.MarkUp();
+                return true;
+            }
             if (_owned is null || _owned.HasExited) return false;
             Thread.Sleep(250);
         }
         return false;
+    }
+
+    // Watchdog settings: a health check every 2 s, a restart after 2 failed checks in a row, a wait of 1, 2 and
+    // 4 s before the 1st, 2nd and 3rd restart, and at most 3 restarts in 5 minutes.
+    private const int CheckIntervalMilliseconds = 2000;
+    private const int FailuresBeforeRestart = 2;
+    private const int MaxRestarts = 3;
+    private static readonly TimeSpan RestartWindow = TimeSpan.FromMinutes(5);
+
+    private readonly CancellationTokenSource _watchdogStop = new();
+    private readonly List<DateTime> _restarts = new();
+
+    /// <summary>
+    /// Watches the engine and starts it again when it stops answering. After MaxRestarts in RestartWindow it
+    /// stops restarting and calls onGaveUp once; the app then keeps running without corrections.
+    /// </summary>
+    public void StartWatchdog(Action onGaveUp)
+    {
+        Task.Run(() => WatchAsync(onGaveUp, _watchdogStop.Token));
+    }
+
+    private async Task WatchAsync(Action onGaveUp, CancellationToken ct)
+    {
+        int failures = 0;
+        bool gaveUp = false;
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(CheckIntervalMilliseconds, ct);
+                if (IsRunning())
+                {
+                    failures = 0;
+                    EngineState.MarkUp();
+                    continue;
+                }
+
+                failures++;
+                EngineState.MarkDown();
+                if (failures < FailuresBeforeRestart || gaveUp) continue;
+
+                _restarts.RemoveAll(t => DateTime.UtcNow - t > RestartWindow);
+                if (_restarts.Count >= MaxRestarts)
+                {
+                    gaveUp = true;
+                    Log.Write("engine", $"watchdog: {MaxRestarts} restarts in {RestartWindow.TotalMinutes:0} minutes, not restarting again");
+                    onGaveUp();
+                    continue;
+                }
+
+                int waitSeconds = 1 << _restarts.Count;
+                await Task.Delay(TimeSpan.FromSeconds(waitSeconds), ct);
+                _restarts.Add(DateTime.UtcNow);
+                Log.Write("engine", $"watchdog: engine not answering, restart {_restarts.Count} of {MaxRestarts}");
+                StopOwned();
+                bool running = StartIfNeeded();
+                Log.Write("engine", running ? "watchdog: engine is running again" : "watchdog: engine did not start");
+                failures = 0;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log.Error("engine watchdog", ex);
+        }
+    }
+
+    private void StopOwned()
+    {
+        var owned = _owned;
+        _owned = null;
+        if (owned is null) return;
+        try
+        {
+            if (!owned.HasExited) owned.Kill(entireProcessTree: true);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+        {
+            // Already gone.
+        }
+        finally
+        {
+            owned.Dispose();
+        }
     }
 
     /// <summary>
@@ -185,6 +279,7 @@ public sealed class EngineLauncher : IDisposable
     /// <summary>Stops the engine, but only if this app started it.</summary>
     public void Dispose()
     {
+        _watchdogStop.Cancel();
         if (_owned is null) return;
         try
         {

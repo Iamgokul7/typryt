@@ -123,6 +123,7 @@ public partial class App : Application
             {
                 bool running = _engine.StartIfNeeded();
                 Log.Write("engine", running ? "engine is running" : "engine did not start");
+                _engine.StartWatchdog(() => ShowMessage("Typryt's correction engine stopped and could not be restarted. Corrections are off until Typryt is restarted."));
             }
             catch (Exception ex)
             {

@@ -40,14 +40,19 @@ public sealed class ApiClient : IDisposable
             };
             using var response = await _http.PostAsJsonAsync("correct", request, JsonOptions, ct);
             if (!response.IsSuccessStatusCode) return null;
-            return await response.Content.ReadFromJsonAsync<CorrectResponse>(JsonOptions, ct);
+            var answer = await response.Content.ReadFromJsonAsync<CorrectResponse>(JsonOptions, ct);
+            EngineState.MarkUp();
+            return answer;
         }
         catch (HttpRequestException)
         {
+            // The engine is not there: nothing is held for it until the watchdog sees it answer again.
+            EngineState.MarkDown();
             return null;
         }
         catch (TaskCanceledException)
         {
+            if (!ct.IsCancellationRequested) EngineState.MarkDown();
             return null;
         }
     }
