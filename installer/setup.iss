@@ -23,7 +23,6 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
 LicenseFile=..\LICENSE.txt
 SetupIconFile=..\csharp-app\Assets\typryt.ico
 OutputDir=Output
@@ -57,6 +56,10 @@ Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: deskto
 ; The same startup entry the Settings switch writes (current user only).
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Typryt"; ValueData: """{app}\{#MyAppExe}"""; Flags: uninsdeletevalue; Tasks: startup
 
+[InstallDelete]
+; An upgrade starts from a clean engine folder, so no file of an earlier engine stays behind.
+Type: filesandordirs; Name: "{app}\engine"
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
 
@@ -65,13 +68,13 @@ Filename: "{app}\{#MyAppExe}"; Description: "Start {#MyAppName}"; Flags: nowait 
 
 [Code]
 { Stops the Typryt app and its engine, and only those that run from the install folder: matched by their executable path,
-  never by name alone, so another program (or a copy of Typryt somewhere else) is left alone. }
+  never by name alone (the uninstaller itself is left running), so another program (or a copy of Typryt somewhere else) is left alone. }
 procedure StopTyprytFrom(const Folder: String);
 var
   Script, Params: String;
   ResultCode: Integer;
 begin
-  Script := '$f=''' + Folder + '\*''; Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like $f } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }';
+  Script := '$f=''' + Folder + '\*''; Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like $f -and $_.Name -notlike ''unins*'' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }';
   Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' + Script + '"';
   Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(800);
