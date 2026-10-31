@@ -13,7 +13,6 @@ namespace Typryt;
 /// </summary>
 public sealed class EngineLauncher : IDisposable
 {
-    private const string Address = "http://127.0.0.1:8000/";
     private const int StartupTimeoutSeconds = 20;
 
     private Process? _owned;
@@ -27,22 +26,32 @@ public sealed class EngineLauncher : IDisposable
             return true;
         }
 
-        var startInfo = StartInfo();
-        if (startInfo is null) return false;
-
-        _owned = Process.Start(startInfo);
-        if (_owned is not null) TieToApp(_owned);
-
-        var deadline = DateTime.UtcNow.AddSeconds(StartupTimeoutSeconds);
-        while (DateTime.UtcNow < deadline)
+        // A port that was free a moment ago can be taken before the engine binds it. The engine then exits at once,
+        // and the start is tried again on another port.
+        for (int attempt = 0; attempt < 3; attempt++)
         {
-            if (IsRunning())
+            EngineIdentity.PrepareForStart();
+            var startInfo = StartInfo();
+            if (startInfo is null) return false;
+
+            _owned = Process.Start(startInfo);
+            if (_owned is not null) TieToApp(_owned);
+
+            var deadline = DateTime.UtcNow.AddSeconds(StartupTimeoutSeconds);
+            while (DateTime.UtcNow < deadline)
             {
-                EngineState.MarkUp();
-                return true;
+                if (IsRunning())
+                {
+                    EngineState.MarkUp();
+                    return true;
+                }
+                if (_owned is null || _owned.HasExited) break;
+                Thread.Sleep(250);
             }
-            if (_owned is null || _owned.HasExited) return false;
-            Thread.Sleep(250);
+            if (_owned is not null && !_owned.HasExited) return false;
+            Log.Write("engine", $"the engine exited while starting (attempt {attempt + 1} of 3)");
+            _owned?.Dispose();
+            _owned = null;
         }
         return false;
     }
@@ -233,14 +242,14 @@ public sealed class EngineLauncher : IDisposable
         var packaged = AppPaths.PackagedEngineExe();
         if (packaged is not null)
         {
-            return new ProcessStartInfo
+            return WithIdentity(new ProcessStartInfo
             {
                 FileName = packaged,
                 WorkingDirectory = Path.GetDirectoryName(packaged)!,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
-            };
+            });
         }
 
         var engineFolder = AppPaths.RepositoryEngineFolder();
@@ -248,25 +257,48 @@ public sealed class EngineLauncher : IDisposable
         var python = Path.Combine(engineFolder, "venv", "Scripts", "python.exe");
         if (!File.Exists(python)) return null;
 
-        return new ProcessStartInfo
+        return WithIdentity(new ProcessStartInfo
         {
             FileName = python,
-            Arguments = "-m uvicorn main:app --host 127.0.0.1 --port 8000",
+            Arguments = $"-m uvicorn main:app --host 127.0.0.1 --port {EngineIdentity.Port}",
             WorkingDirectory = engineFolder,
             UseShellExecute = false,
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden,
-        };
+        });
     }
 
-    /// <summary>True when the engine answers its health check.</summary>
+    /// <summary>Gives the engine its port and token through its environment (the command line of a process can be read by others).</summary>
+    private static ProcessStartInfo WithIdentity(ProcessStartInfo info)
+    {
+        info.Environment["TYPRYT_ENGINE_PORT"] = EngineIdentity.Port.ToString();
+        info.Environment["TYPRYT_ENGINE_TOKEN"] = EngineIdentity.Token;
+        return info;
+    }
+
+    /// <summary>
+    /// True when the engine of this launch answers its health check. A health check from the engine carries a proof that
+    /// it knows the token (a keyed hash of a fresh nonce); an answer without it, from some other program on the port, does not count.
+    /// </summary>
     public static bool IsRunning()
     {
         try
         {
-            using var client = new HttpClient { BaseAddress = new Uri(Address), Timeout = TimeSpan.FromMilliseconds(500) };
-            using var response = client.GetAsync("health").GetAwaiter().GetResult();
-            return response.IsSuccessStatusCode;
+            string nonce = Guid.NewGuid().ToString("N");
+            using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
+            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(EngineIdentity.BaseAddress, "health"));
+            request.Headers.Add(EngineIdentity.TokenHeader, EngineIdentity.Token);
+            request.Headers.Add(EngineIdentity.NonceHeader, nonce);
+            using var response = client.Send(request);
+            if (!response.IsSuccessStatusCode) return false;
+            using var reader = new StreamReader(response.Content.ReadAsStream());
+            using var doc = System.Text.Json.JsonDocument.Parse(reader.ReadToEnd());
+            return doc.RootElement.TryGetProperty("proof", out var proof)
+                && string.Equals(proof.GetString(), EngineIdentity.ExpectedProof(nonce), StringComparison.Ordinal);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
         }
         catch (HttpRequestException)
         {

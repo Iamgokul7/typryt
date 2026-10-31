@@ -1,11 +1,14 @@
 """Typryt correction engine: FastAPI server on localhost."""
 
+import hashlib
+import hmac
 import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from apostrophe import resolve_pending
@@ -47,10 +50,28 @@ async def lifespan(app: FastAPI):
     global spell_checker, learner
     learner = Learner(LEARNER_PATH)
     spell_checker = SpellChecker(learner)
+    # The first Hunspell suggestions are slow (the dictionary is read lazily), and a slow first answer would make the
+    # first corrections after a start depend on timing. Ask once, with a generous budget, before any request arrives.
+    spell_checker.warm_up()
     yield
 
 
-app = FastAPI(title="Typryt Engine", lifespan=lifespan)
+app = FastAPI(title="Typryt Engine", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+# Every request must carry the token the app started this engine with. Without a token the engine answers nothing,
+# except in test mode (TYPRYT_TEST_INPUT=1, the app's own test switch), where a missing token means "open" so the
+# engine tests can run it by hand.
+_TOKEN = os.environ.get("TYPRYT_ENGINE_TOKEN", "")
+_OPEN_FOR_TESTS = not _TOKEN and os.environ.get("TYPRYT_TEST_INPUT") == "1"
+
+
+@app.middleware("http")
+async def require_token(request: Request, call_next):
+    if not _OPEN_FOR_TESTS:
+        supplied = request.headers.get("x-typryt-token", "")
+        if not _TOKEN or not hmac.compare_digest(supplied.encode("utf-8"), _TOKEN.encode("utf-8")):
+            return JSONResponse({"detail": "token required"}, status_code=401)
+    return await call_next(request)
 
 
 class CorrectRequest(BaseModel):
@@ -112,8 +133,11 @@ class DictionarySnapshot(BaseModel):
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health(request: Request) -> dict[str, str]:
+    # The proof shows the caller that this is the engine it started: a keyed hash of the caller's nonce.
+    nonce = request.headers.get("x-typryt-nonce", "")
+    proof = hmac.new(_TOKEN.encode("utf-8"), nonce.encode("utf-8"), hashlib.sha256).hexdigest() if _TOKEN else ""
+    return {"status": "ok", "proof": proof}
 
 
 @app.post("/correct", response_model=CorrectResponse)

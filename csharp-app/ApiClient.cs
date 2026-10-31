@@ -15,14 +15,14 @@ public sealed class ApiClient : IDisposable
 
     private readonly HttpClient _http;
 
-    public ApiClient(Uri? baseAddress = null, int timeoutMilliseconds = 500)
+    public ApiClient(int timeoutMilliseconds = 500)
     {
-        _http = new HttpClient
-        {
-            BaseAddress = baseAddress ?? new Uri("http://127.0.0.1:8000/"),
-            Timeout = TimeSpan.FromMilliseconds(timeoutMilliseconds),
-        };
+        _http = new HttpClient { Timeout = TimeSpan.FromMilliseconds(timeoutMilliseconds) };
+        _http.DefaultRequestHeaders.Add(EngineIdentity.TokenHeader, EngineIdentity.Token);
     }
+
+    // The engine's port can change when it is started again, so the address is taken at each call.
+    private static Uri Url(string path) => new(EngineIdentity.BaseAddress, path);
 
     /// <summary>Returns the engine's answer, or null if the engine is unreachable or slow.</summary>
     public async Task<CorrectResponse?> CorrectAsync(string word, string sessionId, bool abbreviationsEnabled, CancellationToken ct, bool learningEnabled = true, bool autoCapitalize = true, string previousTrail = "")
@@ -38,7 +38,7 @@ public sealed class ApiClient : IDisposable
                 AutoCapitalize = autoCapitalize,
                 PreviousTrail = previousTrail,
             };
-            using var response = await _http.PostAsJsonAsync("correct", request, JsonOptions, ct);
+            using var response = await _http.PostAsJsonAsync(Url("correct"), request, JsonOptions, ct);
             if (!response.IsSuccessStatusCode) return null;
             var answer = await response.Content.ReadFromJsonAsync<CorrectResponse>(JsonOptions, ct);
             EngineState.MarkUp();
@@ -62,7 +62,7 @@ public sealed class ApiClient : IDisposable
     {
         try
         {
-            using var response = await _http.PostAsJsonAsync("punctuate", new PunctuateRequest { Text = text }, JsonOptions, ct);
+            using var response = await _http.PostAsJsonAsync(Url("punctuate"), new PunctuateRequest { Text = text }, JsonOptions, ct);
             if (!response.IsSuccessStatusCode) return null;
             var answer = await response.Content.ReadFromJsonAsync<PunctuateResponse>(JsonOptions, ct);
             return answer?.Text;
@@ -86,7 +86,7 @@ public sealed class ApiClient : IDisposable
         try
         {
             var request = new LearnUndoRequest { Word = word, Hours = blockHours == 0 ? null : blockHours };
-            using var response = await _http.PostAsJsonAsync("learn/undo", request, JsonOptions, ct);
+            using var response = await _http.PostAsJsonAsync(Url("learn/undo"), request, JsonOptions, ct);
         }
         catch (HttpRequestException)
         {
@@ -101,7 +101,7 @@ public sealed class ApiClient : IDisposable
     {
         try
         {
-            using var response = await _http.PostAsJsonAsync("reset", new ResetRequest { SessionId = sessionId }, JsonOptions, ct);
+            using var response = await _http.PostAsJsonAsync(Url("reset"), new ResetRequest { SessionId = sessionId }, JsonOptions, ct);
         }
         catch (HttpRequestException)
         {
@@ -116,7 +116,7 @@ public sealed class ApiClient : IDisposable
     {
         try
         {
-            return await _http.GetFromJsonAsync<DictionarySnapshot>("dictionary", JsonOptions, ct);
+            return await _http.GetFromJsonAsync<DictionarySnapshot>(Url("dictionary"), JsonOptions, ct);
         }
         catch (HttpRequestException)
         {
@@ -133,7 +133,7 @@ public sealed class ApiClient : IDisposable
     {
         try
         {
-            using var response = await _http.PostAsJsonAsync("dictionary/words", new WordRequest { Word = word }, JsonOptions, ct);
+            using var response = await _http.PostAsJsonAsync(Url("dictionary/words"), new WordRequest { Word = word }, JsonOptions, ct);
             return response.IsSuccessStatusCode;
         }
         catch (HttpRequestException)
@@ -158,7 +158,7 @@ public sealed class ApiClient : IDisposable
     {
         try
         {
-            using var response = await _http.DeleteAsync(path, ct);
+            using var response = await _http.DeleteAsync(Url(path), ct);
             return response.IsSuccessStatusCode;
         }
         catch (HttpRequestException)
