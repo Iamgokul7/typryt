@@ -464,6 +464,47 @@ public static class TextReplacer
         }
     }
 
+    private const int ReadWordWindow = 48;
+
+    /// <summary>
+    /// The word that ends exactly at the caret, read from the app's own text, or null. Used after the caret was moved
+    /// (arrows, Home, End, a click), when the keys typed no longer say which word is before the caret. Null when the app
+    /// does not expose its text (browsers), when text is selected, when the caret is inside a word, or when the word is
+    /// part of an address, number or path. Reads through UI Automation; never throws.
+    /// </summary>
+    public static string? ReadWordBeforeCaret()
+    {
+        if (IsBrowserInFront()) return null;
+        try
+        {
+            var focused = AutomationElement.FocusedElement;
+            if (focused is null || !focused.TryGetCurrentPattern(TextPattern.Pattern, out object pattern)) return null;
+            var selections = ((TextPattern)pattern).GetSelection();
+            if (selections.Length != 1) return null;
+            var caret = selections[0];
+            if (caret.GetText(1).Length > 0) return null;                  // text is selected, not a caret
+
+            var after = caret.Clone();
+            after.MoveEndpointByUnit(TextPatternRangeEndpoint.End, TextUnit.Character, 1);
+            string next = after.GetText(1);
+            if (next.Length > 0 && (char.IsLetterOrDigit(next[0]) || next[0] == '\'')) return null;   // inside a word
+
+            var before = caret.Clone();
+            before.MoveEndpointByUnit(TextPatternRangeEndpoint.Start, TextUnit.Character, -ReadWordWindow);
+            string window = before.GetText(ReadWordWindow);
+            int end = window.Length, start = end;
+            while (start > 0 && (char.IsLetter(window[start - 1]) || window[start - 1] == '\'')) start--;
+            if (start == end || end - start > 30) return null;
+            if (start == 0 && window.Length == ReadWordWindow) return null;   // the word may begin before the window
+            if (start > 0 && "@/\\_.-#0123456789$%".IndexOf(window[start - 1]) >= 0) return null;
+            return window[start..end];
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or COMException or ElementNotAvailableException)
+        {
+            return null;
+        }
+    }
+
     private static readonly string[] BrowserProcesses = ["chrome", "msedge", "firefox", "brave", "opera"];
 
     // Notepad answers the text read in about 85 ms, which is longer than a correction should take. Its

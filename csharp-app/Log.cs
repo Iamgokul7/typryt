@@ -43,6 +43,15 @@ public static class Log
         }
     }
 
+    /// <summary>
+    /// Logs an unexpected fault by its type and stack only. The message is left out: it may carry text the user typed.
+    /// </summary>
+    public static void Fault(string place, Exception ex)
+    {
+        int count = Interlocked.Increment(ref _errorCount);
+        Write("error", $"#{count} {place}: {ex.GetType().FullName}{Environment.NewLine}{ex.StackTrace}");
+    }
+
     /// <summary>How many unexpected errors this run has logged. Counted even when the log file cannot be written.</summary>
     public static int ErrorCount => _errorCount;
 

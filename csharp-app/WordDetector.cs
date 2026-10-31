@@ -7,7 +7,7 @@ namespace Typryt;
 /// One keystroke, already translated from the Windows virtual key by KeyboardHook.
 /// Character is the printed character, or null for keys that print nothing.
 /// </summary>
-public readonly record struct KeyInput(char? Character, bool IsBackspace, bool IsBreak, char Boundary = '\0');
+public readonly record struct KeyInput(char? Character, bool IsBackspace, bool IsBreak, char Boundary = '\0', bool EditsText = false);
 
 /// <summary>
 /// A word that the user finished. Trail is everything typed after the word, up to and
@@ -15,7 +15,7 @@ public readonly record struct KeyInput(char? Character, bool IsBackspace, bool I
 /// for words the pre-filters skip; those are still reported so the caller can track
 /// what is on screen.
 /// </summary>
-public sealed record CompletedWord(string Text, char Terminator, string Trail, bool IsCorrectable);
+public sealed record CompletedWord(string Text, char Terminator, string Trail, bool IsCorrectable, bool Tainted = false);
 
 /// <summary>
 /// Builds the word being typed. A space or punctuation key completes the word.
@@ -31,6 +31,14 @@ public sealed class WordDetector
 
     // Set when a code symbol touches the word, so words inside code are never corrected.
     private bool _codeLike;
+
+    // Set when the text on screen before the caret no longer matches the keys seen: a Backspace deleted text this
+    // detector never saw, or a paste, cut or undo changed it. The word typed next may be only the end of a longer
+    // word on screen, so it is not corrected.
+    private bool _tainted;
+
+    /// <summary>True after a key moved the caret or a click did (arrows, Home, End, Delete, Ctrl shortcuts), until text is typed.</summary>
+    public bool CaretMoved { get; private set; }
 
     private static readonly char[] Terminators = [' ', ',', '!', '?', ';', ':'];
     private static readonly char[] CodeSymbols = ['{', '}', '(', ')', '_', '"'];
@@ -54,6 +62,11 @@ public sealed class WordDetector
             {
                 _word.Length--;
             }
+            else
+            {
+                // The Backspace deleted something before the word being typed (a space, or letters of an earlier word).
+                _tainted = true;
+            }
             return null;
         }
 
@@ -61,6 +74,8 @@ public sealed class WordDetector
         {
             _pendingPeriod = null;
             _codeLike = false;
+            _tainted = key.EditsText;
+            CaretMoved = true;
             _openBrackets = 0;
             _quoteOpen = false;
             _word.Clear();
@@ -68,6 +83,7 @@ public sealed class WordDetector
         }
 
         char c = key.Character.Value;
+        CaretMoved = false;
 
         if (c == '.')
         {
@@ -79,7 +95,7 @@ public sealed class WordDetector
                 return null;
             }
             string text = _word.ToString();
-            _pendingPeriod = new CompletedWord(text, '.', ".", IsCorrectable(text) && !_codeLike);
+            _pendingPeriod = new CompletedWord(text, '.', ".", IsCorrectable(text) && !_codeLike && !_tainted, Tainted: _tainted);
             _word.Clear();
             return null;
         }
@@ -159,15 +175,16 @@ public sealed class WordDetector
         if (_pendingPeriod is not null)
         {
             // The period really ended the word, so the trail is the period plus this key.
-            result = new CompletedWord(_pendingPeriod.Text, '.', "." + c, _pendingPeriod.IsCorrectable);
+            result = new CompletedWord(_pendingPeriod.Text, '.', "." + c, _pendingPeriod.IsCorrectable, _pendingPeriod.Tainted);
             _pendingPeriod = null;
         }
         else if (_word.Length > 0)
         {
             string text = _word.ToString();
-            result = new CompletedWord(text, c, c.ToString(), IsCorrectable(text) && !_codeLike);
+            result = new CompletedWord(text, c, c.ToString(), IsCorrectable(text) && !_codeLike && !_tainted, Tainted: _tainted);
         }
         _codeLike = false;
+        _tainted = false;
         _word.Clear();
         return result;
     }
@@ -186,10 +203,12 @@ public sealed class WordDetector
         else if (_word.Length > 0)
         {
             string text = _word.ToString();
-            result = new CompletedWord(text, boundary, boundary.ToString(), IsCorrectable(text) && !_codeLike);
+            result = new CompletedWord(text, boundary, boundary.ToString(), IsCorrectable(text) && !_codeLike && !_tainted);
         }
         _pendingPeriod = null;
         _codeLike = false;
+        _tainted = false;
+        CaretMoved = false;
         _openBrackets = 0;
         _quoteOpen = false;
         _word.Clear();

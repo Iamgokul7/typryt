@@ -63,8 +63,18 @@ public sealed class TrayIcon : IDisposable
     /// <summary>Shows whether corrections are on, in the status line and the toggle item.</summary>
     public void SetOn(bool isOn)
     {
+        _icon.Text = "Typryt";
         _status.Text = isOn ? "● Typryt is ON" : "○ Typryt is OFF";
         _toggle.Text = isOn ? "Disable" : "Enable";
+    }
+
+    /// <summary>Shows that Typryt paused itself, with the reason, in the tooltip and the status line.</summary>
+    public void SetPaused(string reason)
+    {
+        string text = $"Typryt paused: {reason}";
+        _status.Text = "○ " + text;
+        _toggle.Text = "Enable";
+        _icon.Text = text.Length > 63 ? text[..63] : text;
     }
 
     public void Dispose()

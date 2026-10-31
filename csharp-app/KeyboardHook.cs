@@ -66,6 +66,9 @@ internal sealed class KeyboardHook : IDisposable
     /// </summary>
     public event Action? MouseClicked;
 
+    /// <summary>Test only: a fault injection chord was pressed (the virtual key).</summary>
+    public event Action<int>? TestFault;
+
     /// <summary>
     /// Raised when Alt+U is pressed. A handler that returns true takes the key: Windows
     /// does not pass it to the focused app. Must return fast.
@@ -167,9 +170,37 @@ internal sealed class KeyboardHook : IDisposable
         {
             return CallbackCore(nCode, wParam, lParam);
         }
+        catch (Exception ex)
+        {
+            // The hook must never throw into Windows. The app pauses itself, every held key is delivered, and this
+            // key goes on to the application unless it is already waiting in the held keys (then it is delivered with them).
+            Log.Fault("keyboard hook", ex);
+            bool queued = _holdStartedByThisKey;
+            _holdStartedByThisKey = false;
+            _pendingKeyValid = false;
+            try { SafeMode.Enter(SafeMode.HookFault); } catch (Exception) { }
+            return queued ? (IntPtr)1 : CallNextHookEx(_hookId, nCode, wParam, lParam);
+        }
         finally
         {
             RecordCallback(Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Ends whatever hold is running and delivers the held keys, in order. Safe from any thread.</summary>
+    internal static void ReleaseAllHolds()
+    {
+        int token;
+        lock (HoldGate)
+        {
+            token = _holdToken;
+            if (!Holding && Held.IsEmpty) return;
+            _holdCancelled = true;
+        }
+        if (EndHold(token, "safe mode") < 0)
+        {
+            // No hold state to end, yet keys are queued: send them.
+            ReplayHeldKeys();
         }
     }
 
@@ -202,6 +233,15 @@ internal sealed class KeyboardHook : IDisposable
             if (real && vk is VK_MENU or VK_LMENU or VK_RMENU)
             {
                 _altDown = isDown;
+            }
+
+            if (real && isDown && InputMarks.TestInput && vk is >= 0x77 and <= 0x7B && _altDown && IsDown(VK_CONTROL) && IsDown(VK_SHIFT))
+            {
+                // Test only (needs the test-input switch): Ctrl+Alt+Shift+F9 a hook fault, F10 five forced hold releases,
+                // F11 the engine given up, F12 an unhandled exception on the UI thread, F8 turn on again (as the tray does).
+                TestFault?.Invoke(vk);
+                if (vk == 0x78) throw new InvalidOperationException("injected hook fault");
+                return (IntPtr)1;
             }
 
             if (real && isDown && vk == UndoVirtualKey && _altDown && !IsDown(VK_CONTROL))
@@ -449,6 +489,7 @@ internal sealed class KeyboardHook : IDisposable
             token = _holdToken;
         }
         EndHold(token, reason);
+        if (reason == "time limit") SafeMode.NoteForcedRelease();
     }
 
     /// <summary>
@@ -580,7 +621,9 @@ internal sealed class KeyboardHook : IDisposable
         bool ctrl = heldState ? _ctrlTracked : IsDown(VK_CONTROL);
         if (ctrl || IsDown(VK_MENU))
         {
-            return new KeyInput(null, IsBackspace: false, IsBreak: true);
+            // Paste, cut, undo and redo change the text without the word detector seeing the characters.
+            bool edits = ctrl && vk is 0x56 or 0x58 or 0x5A or 0x59;
+            return new KeyInput(null, IsBackspace: false, IsBreak: true, EditsText: edits);
         }
 
         if (vk == VK_BACK)

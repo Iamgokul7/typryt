@@ -74,7 +74,7 @@ public partial class App : Application
 
     // FocusGeneration is the FocusGuard generation when the key was typed. A job from another generation is dropped.
     // KeyDownCount is KeyboardHook.RealKeyDownCount when the key was typed. A replacement is cancelled if more keys came since.
-    private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence, bool UndoRequest = false, char? Typed = null, bool Backspace = false, int FocusGeneration = 0, int KeyDownCount = -1, int HoldToken = 0, char? HeldDelimiter = null, long KeyTicks = 0);
+    private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence, bool UndoRequest = false, char? Typed = null, bool Backspace = false, int FocusGeneration = 0, int KeyDownCount = -1, int HoldToken = 0, char? HeldDelimiter = null, long KeyTicks = 0, bool ReadWord = false);
 
     // How long a delimiter may be held while its word is looked up and corrected: Space and punctuation, then Enter and Tab.
     private const int ShortHoldMilliseconds = 150;
@@ -113,6 +113,22 @@ public partial class App : Application
         }
         ListenForSecondLaunch();
 
+        // Faults that nothing else catches are logged by type and stack (never text). The UI keeps running after a UI error.
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception fatal) Log.Fault("unhandled", fatal);
+        };
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Log.Fault("task", e.Exception);
+            e.SetObserved();
+        };
+        DispatcherUnhandledException += (_, e) =>
+        {
+            Log.Fault("ui", e.Exception);
+            e.Handled = true;
+        };
+
         Log.PurgeWordLogsOnce();
         Log.PruneOld();
         Log.Write("app", $"started {Environment.ProcessPath}");
@@ -127,6 +143,9 @@ public partial class App : Application
         _keyboardHook.KeyPressed += OnKeyPressed;
         _keyboardHook.AltUPressed += OnAltUPressed;
         _keyboardHook.MouseClicked += OnMouseClicked;
+        _keyboardHook.TestFault += OnTestFault;
+        SafeMode.Entered += OnSafeModeEntered;
+        SafeMode.Cleared += () => Dispatcher.BeginInvoke(() => _tray?.SetOn(_permissions.MasterEnabled));
         _keyboardHook.Install();
         FocusGuard.Start();
         _keyboardHook.UndoVirtualKey = UndoKeyFor(_permissions.UndoLetter);
@@ -143,7 +162,7 @@ public partial class App : Application
             {
                 bool running = _engine.StartIfNeeded();
                 Log.Write("engine", running ? "engine is running" : "engine did not start");
-                _engine.StartWatchdog(() => ShowMessage("Typryt's correction engine stopped and could not be restarted. Corrections are off until Typryt is restarted."));
+                _engine.StartWatchdog(() => SafeMode.Enter(SafeMode.EngineDown));
             }
             catch (Exception ex)
             {
@@ -226,6 +245,34 @@ public partial class App : Application
         _permissions.MasterEnabled = !_permissions.MasterEnabled;
         _permissions.Commit();
         _tray?.SetOn(_permissions.MasterEnabled);
+        if (_permissions.MasterEnabled) SafeMode.Clear();
+    }
+
+    /// <summary>
+    /// Typryt paused itself (see SafeMode). The master switch goes off in memory, so the hook lets every key through;
+    /// the tray says why, and one message tells the user. Turning the master switch or the tray item on again resumes.
+    /// </summary>
+    private void OnSafeModeEntered(string reason)
+    {
+        _permissions.MasterEnabled = false;
+        string why = SafeMode.Describe(reason);
+        Dispatcher.BeginInvoke(() =>
+        {
+            _tray?.SetPaused(why);
+            _toast.ShowMessage($"Typryt paused: {why}");
+        });
+    }
+
+    /// <summary>Test only: the fault injection chords (see KeyboardHook).</summary>
+    private void OnTestFault(int vk)
+    {
+        switch (vk)
+        {
+            case 0x77: Dispatcher.BeginInvoke(ToggleCorrections); break;
+            case 0x79: for (int i = 0; i < 5; i++) SafeMode.NoteForcedRelease(); break;
+            case 0x7A: SafeMode.Enter(SafeMode.EngineDown); break;
+            case 0x7B: Dispatcher.BeginInvoke(new Action(() => throw new InvalidOperationException("injected UI fault"))); break;
+        }
     }
 
     private void ExitApp()
@@ -322,7 +369,19 @@ public partial class App : Application
         // Space and punctuation that end a word: the key is held while the word is corrected, then delivered.
         if (key.Character is { } ending && !key.IsBreak && !key.IsBackspace && IsHeldTerminator(ending))
         {
+            bool caretMoved = _wordDetector.CaretMoved;
             var done = _wordDetector.OnKey(key);
+            if ((done is null && caretMoved || done is { Tainted: true }) && ending is ' ' or ',' or '!' or '?' or ';' or ':')
+            {
+                // The caret moved since the last word, so the keys typed do not say what is before it. In an app whose text
+                // can be read, the word before the caret is read and corrected; elsewhere the key just goes through.
+                int readToken = TryHold(ShortHoldMilliseconds);
+                if (readToken != 0)
+                {
+                    _jobs.Writer.TryWrite(new Job(null, ResetContext: false, sequence, FocusGeneration: focus, KeyDownCount: keyDowns, HoldToken: readToken, HeldDelimiter: ending, KeyTicks: keyTicks, ReadWord: true));
+                    return;
+                }
+            }
             int token = done is { IsCorrectable: true } ? TryHold(ShortHoldMilliseconds) : 0;
             if (token != 0)
             {
@@ -423,6 +482,7 @@ public partial class App : Application
     /// <summary>Applies the saved settings that the hook, toast, and theme use. Called on the UI thread after a change.</summary>
     private void ApplySettings()
     {
+        if (_permissions.MasterEnabled && SafeMode.Paused) SafeMode.Clear();
         if (_keyboardHook is not null)
         {
             _keyboardHook.UndoVirtualKey = UndoKeyFor(_permissions.UndoLetter);
@@ -476,6 +536,31 @@ public partial class App : Application
                     else if (job.Typed is char typedChar)
                     {
                         if (FocusUnchanged(job)) await HandleTypedAsync(typedChar, job.KeySequence, ct);
+                    }
+                    else if (job.ReadWord)
+                    {
+                        try
+                        {
+                            if (FocusUnchanged(job) && job.HeldDelimiter is char readDelimiter)
+                            {
+                                string? realWord = TextReplacer.ReadWordBeforeCaret();
+                                if (realWord is not null && WordDetector.IsCorrectable(realWord))
+                                {
+                                    var read = new CompletedWord(realWord, readDelimiter, readDelimiter.ToString(), true);
+                                    Log.Write("read", $"word of {realWord.Length} letters read before the caret");
+                                    await ProcessWordAsync(read, job.KeySequence, ct, job.HoldToken, job.KeyTicks);
+                                }
+                            }
+                        }
+                        finally
+                        {
+                            KeyboardHook.EndHold(job.HoldToken);
+                        }
+
+                        if (job.HeldDelimiter is char readDelim && FocusUnchanged(job))
+                        {
+                            await HandleTypedAsync(readDelim, job.KeySequence, ct);
+                        }
                     }
                     else if (job.Word is not null)
                     {
@@ -577,6 +662,7 @@ public partial class App : Application
             return;
         }
 
+        _undo.RecordSpan(before, after, keySequence);
         _tail.Clear().Append(after);
     }
 
@@ -758,12 +844,26 @@ public partial class App : Application
 
         _lastWord = new ScreenWord(corrected, word.Trail);
 
+        // After Enter or Tab the caret is on a new line or in another control (or the message is sent), so an undo
+        // would edit the wrong place: it is refused instead.
+        bool noUndo = word.Terminator is '\r' or '\t';
+        bool spanFix = revisedPrevious is not null && previous is not null && !alreadyCorrect;
+        if (spanFix)
+        {
+            // The earlier word was rewritten too (a comma, or a settled contraction): one undo restores all of it.
+            if (noUndo) _undo.Clear();
+            else _undo.RecordSpan(
+                previous!.Text + previous.Trail + word.Text + word.Trail,
+                revisedPrevious! + previous.Trail + corrected + word.Trail,
+                keySequence,
+                corrected != word.Text ? word.Text : null,
+                corrected != word.Text ? corrected : null);
+        }
+
         if (corrected != word.Text && !alreadyCorrect)
         {
-            // After Enter or Tab the caret is on a new line or in another control (or the message is sent), so an undo
-            // would edit the wrong place: it is refused instead.
-            if (word.Terminator is '\r' or '\t') _undo.Clear();
-            else _undo.Record(word.Text, corrected, word.Trail, keySequence);
+            if (noUndo) _undo.Clear();
+            else if (!spanFix) _undo.Record(word.Text, corrected, word.Trail, keySequence);
             _stats.RecordCorrection(word.Text, corrected);
             ShowToast(word.Text, corrected);
             Log.Write("correct", $"corrected {word.Text.Length} -> {corrected.Length} letters in {sw.ElapsedMilliseconds} ms (key to start {queueMs} ms, safety check {safetyMs} ms, engine {engineMs} ms, replace {replaceMs} ms, key held {holdMs:0} ms, key to corrected text {toTextMs} ms)");
@@ -850,10 +950,21 @@ public partial class App : Application
             return;
         }
 
-        Log.Write("undo", $"undone: {correction.Corrected.Length} -> {correction.Original.Length} letters");
+        Log.Write("undo", $"undone: {correction.Corrected.Length} -> {correction.Original.Length} letters{(correction.IsSpan ? " (span)" : "")}");
         ReplaceTail(correction.Corrected + correction.Trail, correction.Original + correction.Trail);
-        _lastWord = new ScreenWord(correction.Original, correction.Trail);
-        _stats.RecordUndo(correction.Original, correction.Corrected);
+        if (correction.IsSpan)
+        {
+            _lastWord = null;
+            if (correction.StatsOriginal is not null && correction.StatsCorrected is not null)
+            {
+                _stats.RecordUndo(correction.StatsOriginal, correction.StatsCorrected);
+            }
+        }
+        else
+        {
+            _lastWord = new ScreenWord(correction.Original, correction.Trail);
+            _stats.RecordUndo(correction.Original, correction.Corrected);
+        }
 
         // An undo reverts only this correction. The word is not blocked: when it is typed again it can be corrected.
     }
