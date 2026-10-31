@@ -188,6 +188,12 @@ public sealed class PermissionManager
             File.Move(_path, _path + ".corrupt", overwrite: true);
             _config = new AppConfig { Apps = DefaultApps.Build() };
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The file could not be read right now (another program has it open). It is left as it is, not moved
+            // aside, and the defaults are used for this run.
+            _config = new AppConfig { Apps = DefaultApps.Build() };
+        }
     }
 
     /// <summary>Adds apps found by the scan that are not in the list yet. They start off.</summary>

@@ -130,6 +130,11 @@ public sealed class StatsStore
             File.Move(_path, _path + ".corrupt", overwrite: true);
             _data = new StatsData();
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Not readable right now: left as it is, and counting starts from nothing for this run.
+            _data = new StatsData();
+        }
     }
 
     private void Save()

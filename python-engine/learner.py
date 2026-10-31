@@ -178,7 +178,8 @@ class Learner:
         if not self._path.exists():
             return
         try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
+            # utf-8-sig: a file saved with a byte order mark (Windows PowerShell, Notepad) must still load
+            data = json.loads(self._path.read_text(encoding="utf-8-sig"))
             self._personal_words = {normalize(w) for w in data.get("personal_words", []) if is_valid_word(w)}
             self._never_correct = self._load_blocks(data)
             salt = data.get("salt")
@@ -226,6 +227,7 @@ class Learner:
             "salt": self._salt,
             "unknown_counts": dict(self._unknown_counts),
         }
-        temporary = self._path.with_suffix(self._path.suffix + ".tmp")
+        # One temporary name per process, so two engines can never write the same temporary file
+        temporary = self._path.with_suffix(self._path.suffix + f".{os.getpid()}.tmp")
         temporary.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         os.replace(temporary, self._path)

@@ -90,9 +90,21 @@ public partial class App : Application
         _singleInstance = new Mutex(initiallyOwned: true, SingleInstanceName, out bool firstCopy);
         if (!firstCopy)
         {
+            // Tell the running copy to show its window, then leave. The running copy may bring itself to the front.
+            AllowSetForegroundWindow(-1);
+            try
+            {
+                using var signal = EventWaitHandle.OpenExisting(ShowSignalName);
+                signal.Set();
+            }
+            catch (Exception ex) when (ex is WaitHandleCannotBeOpenedException or UnauthorizedAccessException)
+            {
+                // The running copy has not created its signal yet: nothing to tell.
+            }
             Shutdown();
             return;
         }
+        ListenForSecondLaunch();
 
         Log.PurgeWordLogsOnce();
         Log.PruneOld();
@@ -142,6 +154,44 @@ public partial class App : Application
         ThemeManager.Apply(_permissions.Theme);
         new SplashScreen().Show();
     }
+
+    private const string ShowSignalName = "Typryt.ShowWindow";
+    private EventWaitHandle? _showSignal;
+
+    /// <summary>A second launch sets this signal. The window is brought to the front on the UI thread.</summary>
+    private void ListenForSecondLaunch()
+    {
+        _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSignalName);
+        var signal = _showSignal;
+        var stop = _shutdown.Token;
+        Task.Run(() =>
+        {
+            var handles = new WaitHandle[] { signal, stop.WaitHandle };
+            while (WaitHandle.WaitAny(handles) == 0)
+            {
+                try
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        ShowDashboard();
+                        if (_main is not null)
+                        {
+                            // Activate alone only flashes the taskbar when another window has the focus.
+                            _main.Topmost = true;
+                            _main.Topmost = false;
+                        }
+                    });
+                }
+                catch (Exception ex) when (ex is TaskCanceledException or InvalidOperationException)
+                {
+                    return;
+                }
+            }
+        });
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool AllowSetForegroundWindow(int processId);
 
     /// <summary>Shows the dashboard, creating it the first time. Closing it only hides it; the tray keeps the app running.</summary>
     private void ShowDashboard()
