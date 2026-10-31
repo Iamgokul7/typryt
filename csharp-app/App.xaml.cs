@@ -612,7 +612,7 @@ public partial class App : Application
 
         // Stage times for the log (no text): from the key to the start of this work, then the stages of the work.
         long queueMs = keyTicks == 0 ? 0 : (Stopwatch.GetTimestamp() - keyTicks) * 1000 / Stopwatch.Frequency;
-        long safetyMs = 0, engineMs = 0, replaceMs = 0;
+        long safetyMs = 0, engineMs = 0, replaceMs = 0, toTextMs = 0;
         double holdMs = 0;
         void Release(bool changed)
         {
@@ -729,6 +729,8 @@ public partial class App : Application
             result = TextReplacer.ReplaceBeforeCaret(word.Text + onScreenTrail, corrected + onScreenTrail, keyDownCount: keyDownGuard, holdToken: holdToken);
         }
         replaceMs = stage.ElapsedMilliseconds;
+        // From the key press (or the start of this work when the key time is not known) to the corrected text being in place.
+        toTextMs = keyTicks == 0 ? sw.ElapsedMilliseconds : (Stopwatch.GetTimestamp() - keyTicks) * 1000 / Stopwatch.Frequency;
         Release(changed: true);
 
         // Notepad corrected the word itself first: the screen already shows the corrected form, so the tail and
@@ -764,7 +766,7 @@ public partial class App : Application
             else _undo.Record(word.Text, corrected, word.Trail, keySequence);
             _stats.RecordCorrection(word.Text, corrected);
             ShowToast(word.Text, corrected);
-            Log.Write("correct", $"corrected {word.Text.Length} -> {corrected.Length} letters in {sw.ElapsedMilliseconds} ms (key to start {queueMs} ms, safety check {safetyMs} ms, engine {engineMs} ms, replace {replaceMs} ms, key held {holdMs:0} ms)");
+            Log.Write("correct", $"corrected {word.Text.Length} -> {corrected.Length} letters in {sw.ElapsedMilliseconds} ms (key to start {queueMs} ms, safety check {safetyMs} ms, engine {engineMs} ms, replace {replaceMs} ms, key held {holdMs:0} ms, key to corrected text {toTextMs} ms)");
             _ = VerifyAfterAsync(corrected + word.Trail, keySequence);
         }
     }
@@ -863,7 +865,8 @@ public partial class App : Application
 
     private void ShowToast(string original, string corrected)
     {
-        Dispatcher.Invoke(() =>
+        // Not waited for: building the window took about 45 ms, and the next word's correction would wait behind it.
+        Dispatcher.BeginInvoke(() =>
         {
             _toast.DisplaySeconds = _permissions.ToastSeconds;
             _toast.Corner = _permissions.ToastCorner;
