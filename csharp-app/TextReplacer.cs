@@ -42,6 +42,9 @@ public static class TextReplacer
     // (see TimerResolution) so this pause is really about this long, not the default 15 ms.
     private const int KeyStepMilliseconds = 15;
 
+    // Pause after a batch of characters sent to a browser, before the held keys are sent again.
+    private const int BatchSettleMilliseconds = 20;
+
     // The keys are seen here before the app has shown them, so the text before the caret is read again
     // for a short time until it matches.
     private const int VerifySettleMilliseconds = 250;
@@ -157,6 +160,9 @@ public static class TextReplacer
 
         int shared = SharedPrefixLength(expectedBefore, newText);
         bool sent = SendEdit(expectedBefore, newText, capsLock, batch);
+        // A browser takes the batch of characters on its own schedule. The keys that were held (the delimiter) follow at once,
+        // so the batch gets a moment to land first: without it the last character of a correction was sometimes lost.
+        if (batch && sent) Thread.Sleep(BatchSettleMilliseconds);
         // Pressed again even if the user has let go meanwhile: the release is among the held keys and follows the delimiter.
         if (shiftReleased) SendRawKey(VK_SHIFT, ShiftScanCode, up: false, extended: false);
         if (!sent) return ReplaceResult.Failed;
