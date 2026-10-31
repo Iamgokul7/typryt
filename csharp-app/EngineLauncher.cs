@@ -51,7 +51,9 @@ public sealed class EngineLauncher : IDisposable
     // 4 s before the 1st, 2nd and 3rd restart, and at most 3 restarts in 5 minutes.
     private const int CheckIntervalMilliseconds = 2000;
     private const int FailuresBeforeRestart = 2;
-    private const int MaxRestarts = 3;
+    // Test only: TYPRYT_TEST_ENGINE_RESTARTS raises the limit, so a test can kill the engine many times in a row.
+    private static readonly int MaxRestarts =
+        InputMarks.TestInput && int.TryParse(Environment.GetEnvironmentVariable("TYPRYT_TEST_ENGINE_RESTARTS"), out int testLimit) ? testLimit : 3;
     private static readonly TimeSpan RestartWindow = TimeSpan.FromMinutes(5);
 
     private readonly CancellationTokenSource _watchdogStop = new();

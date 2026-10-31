@@ -120,7 +120,11 @@ internal sealed class KeyboardHook : IDisposable
         {
             // Clicks on this app's own windows (the toast's Undo button) do not move the caret in the typed app.
             var info = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-            if (!IsOwnWindowAt(info.pt)) MouseClicked?.Invoke();
+            if (!IsOwnWindowAt(info.pt))
+            {
+                CancelHold();
+                MouseClicked?.Invoke();
+            }
         }
         return CallNextHookEx(_mouseHookId, nCode, wParam, lParam);
     }
@@ -157,6 +161,19 @@ internal sealed class KeyboardHook : IDisposable
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
     private IntPtr Callback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return CallbackCore(nCode, wParam, lParam);
+        }
+        finally
+        {
+            RecordCallback(Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    private IntPtr CallbackCore(int nCode, IntPtr wParam, IntPtr lParam)
     {
         int message = wParam.ToInt32();
         bool isDown = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
@@ -222,7 +239,23 @@ internal sealed class KeyboardHook : IDisposable
             // count as typing and would block undo, because Alt+U would look like typing after a correction.
             if (real && isDown && !IsModifierKey(vk))
             {
-                KeyPressed?.Invoke(Translate(info));
+                // A handler may start a hold on this very key (BeginHold): the key is then queued instead of delivered.
+                _pendingKey = new HeldKey((ushort)vk, (ushort)info.scanCode, true, (info.flags & LLKHF_EXTENDED) != 0, null);
+                _pendingKeyValid = true;
+                _holdStartedByThisKey = false;
+                try
+                {
+                    KeyPressed?.Invoke(Translate(info));
+                }
+                finally
+                {
+                    _pendingKeyValid = false;
+                }
+                if (_holdStartedByThisKey)
+                {
+                    _holdStartedByThisKey = false;
+                    return (IntPtr)1;
+                }
             }
         }
         return CallNextHookEx(_hookId, nCode, wParam, lParam);
@@ -230,7 +263,7 @@ internal sealed class KeyboardHook : IDisposable
 
     private static KeyboardHook? _current;
 
-    /// <summary>True while a correction is being typed. Keys from the user are held until it is done.</summary>
+    /// <summary>True while keys are held. Keys from the user wait until the hold ends.</summary>
     private static volatile bool Holding;
 
     private static readonly ConcurrentQueue<HeldKey> Held = new();
@@ -243,6 +276,34 @@ internal sealed class KeyboardHook : IDisposable
 
     private readonly record struct HeldKey(ushort Vk, ushort Scan, bool IsDown, bool Extended, KeyInput? Input);
 
+    // A hold is in one of these states. Waiting: the word is being looked up, nothing is typed yet. Typing: the
+    // correction is being typed. Releasing: the held keys are being sent again.
+    private const int HoldNone = 0;
+    private const int HoldWaiting = 1;
+    private const int HoldTyping = 2;
+    private const int HoldReleasing = 3;
+
+    // The timer that ends a hold, whatever the worker thread is doing: after the time limit, when focus or the
+    // foreground window changes, and after a mouse click. A correction that is already being typed may finish.
+    private const int HoldTickMilliseconds = 10;
+    private const int TypingHardCapMilliseconds = 2000;
+    private static readonly System.Threading.Timer HoldTimer = new(HoldTick, null, Timeout.Infinite, Timeout.Infinite);
+
+    // All guarded by HoldGate.
+    private static int _holdState;
+    private static int _holdToken;
+    private static int _holdCounter;
+    private static long _holdStartTimestamp;
+    private static int _holdCapMilliseconds;
+    private static IntPtr _holdWindow;
+    private static int _holdFocus;
+    private static bool _holdCancelled;
+
+    // The key the hook is handling right now (hook thread only), so a handler can start a hold on it.
+    private static HeldKey _pendingKey;
+    private static bool _pendingKeyValid;
+    private static bool _holdStartedByThisKey;
+
     // Real key-downs seen so far. A correction compares it with the value from the key that finished the word.
     private static int _realKeyDowns;
 
@@ -252,6 +313,9 @@ internal sealed class KeyboardHook : IDisposable
     // updated for them, so the text of a held key is worked out from these.
     private static volatile bool _shiftTracked;
     private static volatile bool _ctrlTracked;
+
+    /// <summary>True while the hook has seen Shift pressed and not yet released (including keys it is holding).</summary>
+    internal static bool ShiftTracked => _shiftTracked;
 
     private static void TrackModifier(int vk, bool down)
     {
@@ -270,23 +334,145 @@ internal sealed class KeyboardHook : IDisposable
     public static bool ModifierKeyDown(bool includeAlt) =>
         IsDown(VK_SHIFT) || IsDown(VK_CONTROL) || IsDown(0x5B) || IsDown(0x5C) || (includeAlt && IsDown(VK_MENU));
 
+    /// <summary>True while Ctrl, Alt or a Windows key is down. Shift alone is not counted.</summary>
+    internal static bool ShortcutModifierDown() => IsDown(VK_CONTROL) || IsDown(VK_MENU) || IsDown(0x5B) || IsDown(0x5C);
+
     private static bool IsAltOrCapsLock(int vk) => vk is VK_MENU or VK_LMENU or VK_RMENU or VK_CAPITAL;
+
+    /// <summary>
+    /// Starts holding the key the hook is handling right now: it is not delivered, and neither is any key typed after
+    /// it, until EndHold. Call it only from the KeyPressed handler. Returns the hold's token, or 0 when no hold could
+    /// be started. The hold ends by itself after capMilliseconds, or at once when focus or the foreground window
+    /// changes or the mouse is clicked, whatever the worker thread is doing.
+    /// </summary>
+    public static int BeginHold(int capMilliseconds)
+    {
+        lock (HoldGate)
+        {
+            if (Holding || !_pendingKeyValid) return 0;
+            int token = ++_holdCounter;
+            _holdToken = token;
+            _holdState = HoldWaiting;
+            _holdCancelled = false;
+            _holdStartTimestamp = Stopwatch.GetTimestamp();
+            _holdCapMilliseconds = capMilliseconds;
+            _holdWindow = GetForegroundWindow();
+            _holdFocus = FocusGuard.Generation;
+            Held.Enqueue(_pendingKey);
+            Holding = true;
+            _holdStartedByThisKey = true;
+            HoldTimer.Change(HoldTickMilliseconds, HoldTickMilliseconds);
+            return token;
+        }
+    }
+
+    /// <summary>
+    /// The worker is about to type the correction. False when the hold has already ended or was cancelled: the keys
+    /// are on their way to the app, so nothing may be typed. Once true, the hold is not ended by the time limit.
+    /// </summary>
+    public static bool TryBeginTyping(int token)
+    {
+        lock (HoldGate)
+        {
+            if (_holdToken != token || _holdState != HoldWaiting || _holdCancelled) return false;
+            _holdState = HoldTyping;
+            return true;
+        }
+    }
+
+    /// <summary>Milliseconds left of the time limit for a hold that is still waiting, or 0.</summary>
+    public static int HoldRemainingMilliseconds(int token)
+    {
+        lock (HoldGate)
+        {
+            if (_holdToken != token || _holdState != HoldWaiting) return 0;
+            return Math.Max(0, _holdCapMilliseconds - (int)ElapsedMilliseconds(_holdStartTimestamp));
+        }
+    }
+
+    private static double ElapsedMilliseconds(long since) => (Stopwatch.GetTimestamp() - since) * 1000.0 / Stopwatch.Frequency;
+
+    /// <summary>
+    /// Ends the hold and sends the held keys again, in order. Safe to call more than once and from any thread:
+    /// only the first call acts. Returns how long the hold lasted in milliseconds, or -1 when this call did nothing.
+    /// </summary>
+    public static double EndHold(int token, string? earlyReason = null)
+    {
+        if (token == 0) return -1;
+        double held;
+        lock (HoldGate)
+        {
+            if (_holdToken != token || _holdState is HoldNone or HoldReleasing) return -1;
+            _holdState = HoldReleasing;
+            held = ElapsedMilliseconds(_holdStartTimestamp);
+        }
+        HoldTimer.Change(Timeout.Infinite, Timeout.Infinite);
+        if (earlyReason is not null) Log.Write("hold", $"released early ({earlyReason}) after {held:0} ms; the text stays as typed");
+        ReplayHeldKeys();
+        return held;
+    }
+
+    /// <summary>A mouse click ends a hold that is still waiting: the caret may have moved.</summary>
+    private static void CancelHold()
+    {
+        if (!Holding) return;
+        lock (HoldGate)
+        {
+            if (_holdState == HoldWaiting) _holdCancelled = true;
+        }
+    }
+
+    private static void HoldTick(object? state)
+    {
+        int token;
+        string reason;
+        lock (HoldGate)
+        {
+            if (_holdState is HoldNone or HoldReleasing) return;
+            if (_holdState == HoldWaiting)
+            {
+                if (_holdCancelled) reason = "mouse click";
+                else if (GetForegroundWindow() != _holdWindow || FocusGuard.Generation != _holdFocus) reason = "focus changed";
+                else if (ElapsedMilliseconds(_holdStartTimestamp) >= _holdCapMilliseconds) reason = "time limit";
+                else return;
+                _holdCancelled = true;
+            }
+            else if (ElapsedMilliseconds(_holdStartTimestamp) >= TypingHardCapMilliseconds) reason = "typing took too long";
+            else return;
+            token = _holdToken;
+        }
+        EndHold(token, reason);
+    }
 
     /// <summary>
     /// Runs action with the user's keys held, then sends the held keys again in the order they were pressed
     /// (SendInput, with their scan codes). Holding stops only when the queue is empty, so no key can slip in
-    /// between the held ones. Used only for apps that need the replacement keys paced.
+    /// between the held ones. Used for corrections that are not made at a word boundary (undo, punctuation).
     /// </summary>
     public static T HoldKeysWhile<T>(Func<T> action)
     {
-        lock (HoldGate) Holding = true;
+        // A hold that is still sending its keys again finishes first.
+        var wait = Stopwatch.StartNew();
+        while (Holding && wait.ElapsedMilliseconds < 500) Thread.Sleep(2);
+
+        int token;
+        lock (HoldGate)
+        {
+            token = ++_holdCounter;
+            _holdToken = token;
+            _holdState = HoldTyping;
+            _holdCancelled = false;
+            _holdStartTimestamp = Stopwatch.GetTimestamp();
+            Holding = true;
+            HoldTimer.Change(HoldTickMilliseconds, HoldTickMilliseconds);
+        }
         try
         {
             return action();
         }
         finally
         {
-            ReplayHeldKeys();
+            EndHold(token);
         }
     }
 
@@ -306,10 +492,57 @@ internal sealed class KeyboardHook : IDisposable
                 if (Held.IsEmpty)
                 {
                     Holding = false;
+                    _holdState = HoldNone;
                     return;
                 }
             }
         }
+    }
+
+    // How long the hook callback takes. The last CallbackSamples calls are kept (the hook thread writes, the worker reads).
+    private const int CallbackSamples = 8192;
+    private static readonly long[] CallbackTicks = new long[CallbackSamples];
+    private static long _callbackCount;
+    private static long _callbackMaxTicks;
+    private static long _callbackSlow;
+
+    private static void RecordCallback(long ticks)
+    {
+        long n = _callbackCount;
+        CallbackTicks[n % CallbackSamples] = ticks;
+        _callbackCount = n + 1;
+        if (ticks > _callbackMaxTicks) _callbackMaxTicks = ticks;
+        if (ticks * 1000 / Stopwatch.Frequency >= 30) _callbackSlow++;
+    }
+
+    /// <summary>A one-line summary of the hook callback time: calls, p50 and p99 of the recent ones, the longest ever, and calls of 30 ms or more.</summary>
+    public static string CallbackSummary()
+    {
+        long count = Volatile.Read(ref _callbackCount);
+        int n = (int)Math.Min(count, CallbackSamples);
+        if (n == 0) return "no hook calls yet";
+        var copy = new long[n];
+        Array.Copy(CallbackTicks, copy, n);
+        Array.Sort(copy);
+        double Micro(long t) => t * 1_000_000.0 / Stopwatch.Frequency;
+        return $"hook callback: {count} calls, recent {n}: p50 {Micro(copy[n / 2]):0} us, p99 {Micro(copy[(int)(n * 0.99)]):0} us, max ever {Micro(_callbackMaxTicks):0} us, 30 ms or more: {_callbackSlow}";
+    }
+
+    // A dead key (an accent waiting for its letter) was pressed, or the key just handled completed one. A hold is not
+    // started then: the app combines the keys itself.
+    private static bool _deadKeyPending;
+    private static bool _keyAfterDeadKey;
+
+    internal static bool DeadKeyInvolved => _deadKeyPending || _keyAfterDeadKey;
+
+    /// <summary>True when the window being typed into uses a Japanese, Korean or Chinese keyboard layout, whose input method composes text itself.</summary>
+    internal static bool ForegroundUsesImeLayout()
+    {
+        IntPtr window = GetForegroundWindow();
+        if (window == IntPtr.Zero) return false;
+        uint thread = GetWindowThreadProcessId(window, out _);
+        long primaryLanguage = GetKeyboardLayout(thread).ToInt64() & 0x3FF;
+        return primaryLanguage is 0x11 or 0x12 or 0x04;
     }
 
     // An unassigned virtual key that no application uses, so it has no visible effect.
@@ -348,7 +581,13 @@ internal sealed class KeyboardHook : IDisposable
             return new KeyInput(null, IsBackspace: true, IsBreak: false);
         }
 
-        if (vk is VK_TAB or VK_RETURN or VK_ESCAPE or VK_DELETE or VK_HOME or VK_END
+        if (vk is VK_TAB or VK_RETURN)
+        {
+            // Ends a word like Space does, but is not typed text. The app decides whether to hold it for a correction.
+            return new KeyInput(null, IsBackspace: false, IsBreak: true, Boundary: vk == VK_RETURN ? '\r' : '\t');
+        }
+
+        if (vk is VK_ESCAPE or VK_DELETE or VK_HOME or VK_END
             or VK_PRIOR or VK_NEXT or VK_LEFT or VK_UP or VK_RIGHT or VK_DOWN)
         {
             return new KeyInput(null, IsBackspace: false, IsBreak: true);
@@ -367,6 +606,11 @@ internal sealed class KeyboardHook : IDisposable
 
         var buffer = new StringBuilder(4);
         int count = ToUnicode((uint)vk, scanCode, state, buffer, buffer.Capacity, 0);
+        if (!heldState)
+        {
+            _keyAfterDeadKey = _deadKeyPending;
+            _deadKeyPending = count < 0;
+        }
         return count == 1 ? buffer[0] : null;
     }
 
@@ -396,6 +640,12 @@ internal sealed class KeyboardHook : IDisposable
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetKeyboardLayout(uint threadId);
 
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int vKey);

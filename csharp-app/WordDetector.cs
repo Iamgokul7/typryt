@@ -7,7 +7,7 @@ namespace Typryt;
 /// One keystroke, already translated from the Windows virtual key by KeyboardHook.
 /// Character is the printed character, or null for keys that print nothing.
 /// </summary>
-public readonly record struct KeyInput(char? Character, bool IsBackspace, bool IsBreak);
+public readonly record struct KeyInput(char? Character, bool IsBackspace, bool IsBreak, char Boundary = '\0');
 
 /// <summary>
 /// A word that the user finished. Trail is everything typed after the word, up to and
@@ -118,6 +118,28 @@ public sealed class WordDetector
         if (Array.IndexOf(CodeSymbols, c) >= 0) _codeLike = true;
         _word.Clear();
         return null;
+    }
+
+    /// <summary>
+    /// Enter or Tab: ends the word like a Space does, but the key is not text. Returns the word, or null. The trail ends
+    /// with the key, so the part on screen before the key is delivered is the trail without its last character.
+    /// </summary>
+    public CompletedWord? OnBoundary(char boundary)
+    {
+        CompletedWord? result = null;
+        if (_pendingPeriod is not null)
+        {
+            result = new CompletedWord(_pendingPeriod.Text, '.', "." + boundary, _pendingPeriod.IsCorrectable);
+        }
+        else if (_word.Length > 0)
+        {
+            string text = _word.ToString();
+            result = new CompletedWord(text, boundary, boundary.ToString(), IsCorrectable(text) && !_codeLike);
+        }
+        _pendingPeriod = null;
+        _codeLike = false;
+        _word.Clear();
+        return result;
     }
 
     /// <summary>

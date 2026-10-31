@@ -74,7 +74,14 @@ public partial class App : Application
 
     // FocusGeneration is the FocusGuard generation when the key was typed. A job from another generation is dropped.
     // KeyDownCount is KeyboardHook.RealKeyDownCount when the key was typed. A replacement is cancelled if more keys came since.
-    private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence, bool UndoRequest = false, char? Typed = null, bool Backspace = false, int FocusGeneration = 0, int KeyDownCount = -1);
+    private sealed record Job(CompletedWord? Word, bool ResetContext, int KeySequence, bool UndoRequest = false, char? Typed = null, bool Backspace = false, int FocusGeneration = 0, int KeyDownCount = -1, int HoldToken = 0, char? HeldDelimiter = null, long KeyTicks = 0);
+
+    // How long a delimiter may be held while its word is looked up and corrected: Space and punctuation, then Enter and Tab.
+    private const int ShortHoldMilliseconds = 150;
+    private const int LongHoldMilliseconds = 300;
+
+    // Word jobs since the hook callback times were last written to the log (worker thread only).
+    private int _wordsSinceHookLog;
 
     // The FocusGuard generation and key count of the job being worked on (worker thread only).
     private int _jobFocus;
@@ -283,6 +290,42 @@ public partial class App : Application
             _jobs.Writer.TryWrite(new Job(null, ResetContext: true, sequence));
         }
         if (!allowed) return;
+        long keyTicks = Stopwatch.GetTimestamp();
+
+        // Enter and Tab end a word like Space does. The key is held while the word is corrected, so the correction is in
+        // place before a message is sent or focus moves on. When it cannot be held, the word is left as typed.
+        if (key.Boundary != '\0')
+        {
+            var ended = _wordDetector.OnBoundary(key.Boundary);
+            if (ended is { IsCorrectable: true })
+            {
+                int token = TryHold(LongHoldMilliseconds);
+                if (token != 0)
+                {
+                    _jobs.Writer.TryWrite(new Job(ended, ResetContext: false, sequence, FocusGeneration: focus, KeyDownCount: keyDowns, HoldToken: token, KeyTicks: keyTicks));
+                }
+            }
+            _jobs.Writer.TryWrite(new Job(null, ResetContext: true, sequence));
+            return;
+        }
+
+        // Space and punctuation that end a word: the key is held while the word is corrected, then delivered.
+        if (key.Character is { } ending && !key.IsBreak && !key.IsBackspace && IsHeldTerminator(ending))
+        {
+            var done = _wordDetector.OnKey(key);
+            int token = done is { IsCorrectable: true } ? TryHold(ShortHoldMilliseconds) : 0;
+            if (token != 0)
+            {
+                _jobs.Writer.TryWrite(new Job(done, ResetContext: false, sequence, FocusGeneration: focus, KeyDownCount: keyDowns, HoldToken: token, HeldDelimiter: ending, KeyTicks: keyTicks));
+                return;
+            }
+            _jobs.Writer.TryWrite(new Job(null, ResetContext: false, sequence, Typed: ending, FocusGeneration: focus, KeyDownCount: keyDowns));
+            if (done is not null)
+            {
+                _jobs.Writer.TryWrite(new Job(done, ResetContext: false, sequence, FocusGeneration: focus, KeyDownCount: keyDowns, KeyTicks: keyTicks));
+            }
+            return;
+        }
 
         // Keys that move the caret or start new text end the context, so the next word
         // does not refer to text on screen before the break.
@@ -340,6 +383,20 @@ public partial class App : Application
     /// <summary>The virtual-key code of a letter. For A to Z it equals the uppercase character code.</summary>
     private static int UndoKeyFor(char letter) => char.ToUpperInvariant(letter);
 
+    private static bool IsHeldTerminator(char c) => c is ' ' or ',' or '!' or '?' or ';' or ':';
+
+    /// <summary>
+    /// Holds the key being handled so its word can be corrected first. Returns the hold's token, or 0 when no hold is
+    /// safe: the engine is down, the field is a password or unknown, Ctrl, Alt or Win is down, a dead key or an input
+    /// method is composing, or the test switch for the earlier way is on. Runs on the hook thread.
+    /// </summary>
+    private static int TryHold(int capMilliseconds)
+    {
+        if (InputMarks.OldPath || !EngineState.Up || FocusGuard.Blocked) return 0;
+        if (KeyboardHook.ShortcutModifierDown() || KeyboardHook.DeadKeyInvolved || KeyboardHook.ForegroundUsesImeLayout()) return 0;
+        return KeyboardHook.BeginHold(capMilliseconds);
+    }
+
     private static bool EndsContext(char c) =>
         !(char.IsLetterOrDigit(c) || c == '\'' || c is ' ' or ',' or '.' or '!' or '?' or ';' or ':');
 
@@ -372,7 +429,26 @@ public partial class App : Application
                     }
                     else if (job.Word is not null)
                     {
-                        if (FocusUnchanged(job)) await ProcessWordAsync(job.Word, job.KeySequence, ct);
+                        try
+                        {
+                            if (FocusUnchanged(job)) await ProcessWordAsync(job.Word, job.KeySequence, ct, job.HoldToken, job.KeyTicks);
+                        }
+                        finally
+                        {
+                            // Whatever happened, the held key is delivered. Only the first call to EndHold does anything.
+                            KeyboardHook.EndHold(job.HoldToken);
+                        }
+
+                        // The delimiter is on screen now: the typed text and the punctuation check follow it.
+                        if (job.HeldDelimiter is char delimiter && FocusUnchanged(job))
+                        {
+                            await HandleTypedAsync(delimiter, job.KeySequence, ct);
+                        }
+                        if (++_wordsSinceHookLog >= 200)
+                        {
+                            _wordsSinceHookLog = 0;
+                            Log.Write("hook", KeyboardHook.CallbackSummary());
+                        }
                     }
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -478,9 +554,26 @@ public partial class App : Application
         }
     }
 
-    private async Task ProcessWordAsync(CompletedWord word, int keySequence, CancellationToken ct)
+    private async Task ProcessWordAsync(CompletedWord word, int keySequence, CancellationToken ct, int holdToken = 0, long keyTicks = 0)
     {
         var sw = Stopwatch.StartNew();
+        bool held = holdToken != 0;
+
+        // Stage times for the log (no text): from the key to the start of this work, then the stages of the work.
+        long queueMs = keyTicks == 0 ? 0 : (Stopwatch.GetTimestamp() - keyTicks) * 1000 / Stopwatch.Frequency;
+        long safetyMs = 0, engineMs = 0, replaceMs = 0;
+        double holdMs = 0;
+        void Release(bool changed)
+        {
+            if (!held) return;
+            double heldFor = KeyboardHook.EndHold(holdToken);
+            if (heldFor < 0) return;
+            holdMs = heldFor;
+            Log.Write("hold", $"{heldFor:0} ms (engine {engineMs} ms, {(changed ? "changed" : "unchanged")})");
+        }
+
+        // What of the trail is on screen while the word is corrected. A held delimiter is not delivered yet.
+        string onScreenTrail = held ? word.Trail[..^1] : word.Trail;
 
         // Test switch only: makes one correction fail, so the test can check that the error is logged.
         if (InputMarks.TestInput && Environment.GetEnvironmentVariable("TYPRYT_TEST_FORCE_ERROR") == "1")
@@ -499,22 +592,30 @@ public partial class App : Application
         }
 
         // Nothing typed in a password field, or in a control that cannot be identified, reaches the engine.
+        var stage = Stopwatch.StartNew();
         if (!await FocusGuard.IsSafeAsync(_jobFocus))
         {
             _lastWord = null;
             _tail.Clear();
             return;
         }
+        safetyMs = stage.ElapsedMilliseconds;
 
+        // A held key waits for the engine only as long as the hold lasts.
+        using var budget = held ? CancellationTokenSource.CreateLinkedTokenSource(ct) : null;
+        budget?.CancelAfter(KeyboardHook.HoldRemainingMilliseconds(holdToken));
+
+        stage.Restart();
         var response = await _api.CorrectAsync(
             word.Text,
             SessionId,
             _permissions.AbbreviationsEnabled,
-            ct,
+            budget?.Token ?? ct,
             _permissions.LearningEnabled,
             _permissions.AutoCapitalizeEnabled,
             _lastWord?.Trail ?? "");
         // The log never holds typed text: only timings, lengths and outcomes.
+        engineMs = stage.ElapsedMilliseconds;
         Log.Write("engine", $"answered in {sw.ElapsedMilliseconds} ms" + (response is null ? " (no answer)" : $", {(response.Correction == word.Text ? "unchanged" : "changed")} (confidence {response.Confidence:0.00})"));
         if (response is null)
         {
@@ -522,7 +623,8 @@ public partial class App : Application
             return;
         }
 
-        if (Volatile.Read(ref _keySequence) != keySequence)
+        // With the delimiter held, keys typed meanwhile wait too, so they cannot reach the text: no check is needed.
+        if (!held && Volatile.Read(ref _keySequence) != keySequence)
         {
             // The user kept typing. Leave the text alone rather than delete the wrong characters.
             _lastWord = null;
@@ -546,26 +648,37 @@ public partial class App : Application
             if (revisedPrevious == previous.Text) revisedPrevious = null;
         }
 
-        if (!await StillQuietAsync(keySequence, ct))
+        if (held && corrected == word.Text && revisedPrevious is null)
+        {
+            // Nothing to change: the held key goes straight to the app.
+            Release(changed: false);
+        }
+
+        if (!held && !await StillQuietAsync(keySequence, ct))
         {
             // Typing continued, so the word stays as typed. It is still the word before the next one.
             _lastWord = new ScreenWord(word.Text, word.Trail);
             return;
         }
 
+        stage.Restart();
         ReplaceResult result = ReplaceResult.Done;
+        int keyDownGuard = held ? -1 : _jobKeyDowns;
         if (revisedPrevious is not null && previous is not null)
         {
             // Rewrite the earlier word, its trail, this word, and its trail in one go.
             result = TextReplacer.ReplaceBeforeCaret(
-                previous.Text + previous.Trail + word.Text + word.Trail,
-                revisedPrevious + previous.Trail + corrected + word.Trail,
-                keyDownCount: _jobKeyDowns);
+                previous.Text + previous.Trail + word.Text + onScreenTrail,
+                revisedPrevious + previous.Trail + corrected + onScreenTrail,
+                keyDownCount: keyDownGuard,
+                holdToken: holdToken);
         }
         else if (corrected != word.Text)
         {
-            result = TextReplacer.ReplaceBeforeCaret(word.Text + word.Trail, corrected + word.Trail, keyDownCount: _jobKeyDowns);
+            result = TextReplacer.ReplaceBeforeCaret(word.Text + onScreenTrail, corrected + onScreenTrail, keyDownCount: keyDownGuard, holdToken: holdToken);
         }
+        replaceMs = stage.ElapsedMilliseconds;
+        Release(changed: true);
 
         // Notepad corrected the word itself first: the screen already shows the corrected form, so the tail and
         // the last word follow the screen, but nothing is counted, shown, or recorded for undo.
@@ -582,22 +695,25 @@ public partial class App : Application
         if (revisedPrevious is not null && previous is not null)
         {
             ReplaceTail(
-                previous.Text + previous.Trail + word.Text + word.Trail,
-                revisedPrevious + previous.Trail + corrected + word.Trail);
+                previous.Text + previous.Trail + word.Text + onScreenTrail,
+                revisedPrevious + previous.Trail + corrected + onScreenTrail);
         }
         else if (corrected != word.Text)
         {
-            ReplaceTail(word.Text + word.Trail, corrected + word.Trail);
+            ReplaceTail(word.Text + onScreenTrail, corrected + onScreenTrail);
         }
 
         _lastWord = new ScreenWord(corrected, word.Trail);
 
         if (corrected != word.Text && !alreadyCorrect)
         {
-            _undo.Record(word.Text, corrected, word.Trail, keySequence);
+            // After Enter or Tab the caret is on a new line or in another control (or the message is sent), so an undo
+            // would edit the wrong place: it is refused instead.
+            if (word.Terminator is '\r' or '\t') _undo.Clear();
+            else _undo.Record(word.Text, corrected, word.Trail, keySequence);
             _stats.RecordCorrection(word.Text, corrected);
             ShowToast(word.Text, corrected);
-            Log.Write("correct", $"corrected {word.Text.Length} -> {corrected.Length} letters in {sw.ElapsedMilliseconds} ms");
+            Log.Write("correct", $"corrected {word.Text.Length} -> {corrected.Length} letters in {sw.ElapsedMilliseconds} ms (key to start {queueMs} ms, safety check {safetyMs} ms, engine {engineMs} ms, replace {replaceMs} ms, key held {holdMs:0} ms)");
             _ = VerifyAfterAsync(corrected + word.Trail, keySequence);
         }
     }

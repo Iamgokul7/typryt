@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Automation;
@@ -59,13 +59,28 @@ public static class TextReplacer
     /// KeyboardHook.RealKeyDownCount when the key that finished the word was typed. The replacement is cancelled,
     /// and the text stays as typed, if any key has been typed since. -1 turns that check off.
     /// </param>
-    public static ReplaceResult ReplaceBeforeCaret(string expectedBefore, string newText, bool requireReadable = false, int keyDownCount = -1)
+    /// <param name="holdToken">
+    /// The token of a hold the caller already owns (KeyboardHook.BeginHold): the user's keys, the one that finished the
+    /// word included, are already held, so the text is changed directly and the caller ends the hold. 0 when the caller has
+    /// no hold: keys are then held for the length of this call.
+    /// </param>
+    public static ReplaceResult ReplaceBeforeCaret(string expectedBefore, string newText, bool requireReadable = false, int keyDownCount = -1, int holdToken = 0)
     {
+        if (holdToken != 0)
+        {
+            if (!KeyboardHook.TryBeginTyping(holdToken))
+            {
+                Log.Write("replace", "skipped: the hold ended before the correction was ready; the text stays as typed");
+                return ReplaceResult.TextChanged;
+            }
+            return ReplaceCore(expectedBefore, newText, requireReadable, IsBrowserInFront(), keyDownCount, shiftAllowed: true);
+        }
+
         // The user's keys are held while the replacement is typed and typed again, in order, afterwards. A single
         // SendInput batch is not enough on its own: with a keyboard hook installed, a key typed at the same moment
         // was measured landing inside the batch (137 of 200 runs at 20 ms per key).
         bool batch = IsBrowserInFront();
-        return KeyboardHook.HoldKeysWhile(() => ReplaceCore(expectedBefore, newText, requireReadable, batch, keyDownCount));
+        return KeyboardHook.HoldKeysWhile(() => ReplaceCore(expectedBefore, newText, requireReadable, batch, keyDownCount, shiftAllowed: false));
     }
 
     // Right before keys are sent: no modifier key is down (a Shift that is down would turn the replacement's
@@ -73,7 +88,7 @@ public static class TextReplacer
     // so they cannot reach the text.
     private static bool ModifiersAreUp(bool requireReadable) => !KeyboardHook.ModifierKeyDown(includeAlt: !requireReadable);
 
-    private static ReplaceResult ReplaceCore(string expectedBefore, string newText, bool requireReadable, bool batch, int keyDownCount)
+    private static ReplaceResult ReplaceCore(string expectedBefore, string newText, bool requireReadable, bool batch, int keyDownCount, bool shiftAllowed)
     {
         if (expectedBefore.Length == 0) return ReplaceResult.Failed;
 
@@ -117,15 +132,35 @@ public static class TextReplacer
         bool capsLock = (GetKeyState(VK_CAPITAL) & 1) != 0;
         timeBeginPeriod(1);
 
-        if (!ModifiersAreUp(requireReadable))
+        // A word is corrected before its delimiter is delivered, and a delimiter such as ! or ? is typed with Shift, so
+        // Shift is usually still down. It is released for the correction and pressed again afterwards, so the delimiter
+        // reaches the app with its Shift. Ctrl, Alt and Win are never worked around.
+        bool shiftReleased = false;
+        if (shiftAllowed)
+        {
+            if (KeyboardHook.ShortcutModifierDown())
+            {
+                Log.Write("replace", "cancelled: a modifier key is down; the text stays as typed");
+                return ReplaceResult.TextChanged;
+            }
+            if (KeyboardHook.ShiftTracked)
+            {
+                SendRawKey(VK_SHIFT, ShiftScanCode, up: true, extended: false);
+                shiftReleased = true;
+            }
+        }
+        else if (!ModifiersAreUp(requireReadable))
         {
             Log.Write("replace", "cancelled: a modifier key is down; the text stays as typed");
             return ReplaceResult.TextChanged;
         }
 
-        if (!SendEdit(expectedBefore, newText, capsLock, batch)) return ReplaceResult.Failed;
+        int shared = SharedPrefixLength(expectedBefore, newText);
+        bool sent = SendEdit(expectedBefore, newText, capsLock, batch);
+        if (shiftReleased && KeyboardHook.ShiftTracked) SendRawKey(VK_SHIFT, ShiftScanCode, up: false, extended: false);
+        if (!sent) return ReplaceResult.Failed;
 
-        Log.Write("replace", $"replaced {expectedBefore.Length} characters with {newText.Length}");
+        Log.Write("replace", $"replaced {expectedBefore.Length} characters with {newText.Length}: {CountElements(expectedBefore, shared)} Backspaces and {newText.Length - shared} characters sent");
         if (verifyAfter) RepairIfChanged(newText, capsLock);
         return ReplaceResult.Done;
     }
@@ -137,12 +172,11 @@ public static class TextReplacer
     /// </summary>
     private static bool SendEdit(string before, string after, bool capsLock, bool batch)
     {
-        int shared = 0;
-        while (shared < before.Length && shared < after.Length && before[shared] == after[shared]) shared++;
+        int shared = SharedPrefixLength(before, after);
 
         // Each group is one key (its press and release) or one Unicode character; each is sent in one call.
         var groups = new List<List<INPUT>>();
-        for (int i = shared; i < before.Length; i++)
+        for (int i = CountElements(before, shared); i > 0; i--)
         {
             groups.Add(new List<INPUT> { MakeKey(VK_BACK, 0), MakeKey(VK_BACK, KEYEVENTF_KEYUP) });
         }
@@ -170,6 +204,36 @@ public static class TextReplacer
             Thread.Sleep(KeyStepMilliseconds);
         }
         return true;
+    }
+
+    private const ushort ShiftScanCode = 0x2A;
+
+    /// <summary>
+    /// How many characters at the start both texts share, so they can stay. The shared part never ends inside a character made
+    /// of several UTF-16 units (an emoji, a letter with a combining mark): a Backspace removes the whole character.
+    /// </summary>
+    private static int SharedPrefixLength(string before, string after)
+    {
+        if (InputMarks.OldPath) return 0;
+        int shared = 0;
+        while (shared < before.Length && shared < after.Length && before[shared] == after[shared]) shared++;
+        if (shared == 0 || (shared == before.Length && shared == after.Length)) return shared;
+
+        var inBefore = new HashSet<int>(System.Globalization.StringInfo.ParseCombiningCharacters(before)) { before.Length };
+        var inAfter = new HashSet<int>(System.Globalization.StringInfo.ParseCombiningCharacters(after)) { after.Length };
+        while (shared > 0 && !(inBefore.Contains(shared) && inAfter.Contains(shared))) shared--;
+        return shared;
+    }
+
+    /// <summary>How many characters (not UTF-16 units) the text has from index start on: one Backspace removes each.</summary>
+    private static int CountElements(string text, int start)
+    {
+        int count = 0;
+        foreach (int index in System.Globalization.StringInfo.ParseCombiningCharacters(text))
+        {
+            if (index >= start) count++;
+        }
+        return count;
     }
 
     // How long Notepad is given to finish its own change to the word before the result is checked.
