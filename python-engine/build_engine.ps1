@@ -12,6 +12,7 @@ Set-Location $PSScriptRoot
     --name typryt-engine `
     --paths . `
     --add-data "dictionaries;dictionaries" `
+    --add-data "lexicons;lexicons" `
     --collect-data symspellpy `
     --collect-submodules uvicorn `
     --collect-submodules spylls `

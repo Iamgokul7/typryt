@@ -1,9 +1,11 @@
 ﻿"""Correction pipeline for one word.
 
-Order: lone "i", slang, apostrophes, abbreviations, symspellpy, Hunspell.
-Capitalization after a sentence end is applied last. Each result carries a
-confidence between 0 and 1; the C# side applies a correction only when that
-confidence meets the user's level threshold.
+Order: lone "i", laughter, abbreviations, slang, apostrophes, days and months, the curated misspelling map,
+stretched words, then, for a word nobody knows, a conservative check: the word is changed only when the
+evidence is strong (distance 1, a frequent target, a typing-slip pattern or Hunspell's agreement). Anything
+less is left unchanged. Capitalization after a sentence end is applied last. Each result carries a confidence
+between 0 and 1 (see confidence.py); the C# side applies a correction only when that confidence meets the
+user's level threshold.
 """
 
 import itertools
@@ -17,23 +19,24 @@ from symspellpy import SymSpell, Verbosity
 from abbreviation_dict import ABBREVIATIONS
 from apostrophe import apply_apostrophe, fix_apostrophe_word
 from capitalization import capitalize_for_context
-from confidence import (
-    HUNSPELL_SUGGESTION_CONFIDENCE,
-    RULE_CONFIDENCE,
-    symspell_confidence,
-)
+from confidence import RULE_CONFIDENCE, STRETCHED_CONFIDENCE, graded_fix_confidence
 from hunspell_checker import HunspellChecker
 from keyboard import edit_penalty
 from learner import Learner
+from lexicons import Lexicons
 from slang_dict import INFORMAL_WORDS, SLANG
 
 DICTIONARY_NAME = "frequency_dictionary_en_82_765.txt"
 BIGRAM_NAME = "frequency_bigramdictionary_en_243_342.txt"
 MAX_EDIT_DISTANCE = 2
 BIGRAM_WEIGHT = 0.02
-# Words this short are changed only to a very common word; rarer matches ("ing" -> "ign") are left as typed.
-SHORT_WORD_MAX_LENGTH = 3
-SHORT_WORD_MIN_COUNT = 10_000_000
+
+# A word nobody knows is changed only when all of this holds (see _strong_fix):
+MIN_FIX_WORD_LENGTH = 4            # shorter words are changed only by the rule tables and the misspelling map
+MIN_TYPO_LIKE_LENGTH = 5           # a typing-slip pattern is trusted only on words at least this long
+MIN_TARGET_COUNT = 1_000_000       # the replacement must be a frequent word
+TYPO_LIKE_PENALTY = 0.3            # one swapped pair, one neighbouring key, or one doubled letter
+AMBIGUITY_MARGIN = 0.03            # two candidates this close in score: leave the word alone
 
 
 # lol, lool, lols, lolol, lmao, lmfao, rofl, rotfl, haha, hehe, hahaha, hehehe
@@ -43,10 +46,24 @@ _LAUGHTER = re.compile(r"^(?:l+o+l+[sz]?|(?:lo)+l+|lm+f?a+o+|ro+f+l+|rotfl|(?:ha
 # A run of one repeated letter.
 _RUN = re.compile(r"(.)\1+")
 
-STRETCHED_CONFIDENCE = 0.93
-
 # A word this frequent in the frequency list is a real word even when Hunspell does not list it.
 COMMON_WORD_COUNT = 1_000_000
+
+
+_DAYS_AND_MONTHS = {
+    name.lower(): name
+    for name in (
+        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+        "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December",
+    )
+}
+# "may" and "march" are also everyday words ("I may go", "we march"), so they are capitalized only after a
+# word that is followed by a month.
+_AMBIGUOUS_MONTHS = {"may", "march"}
+_BEFORE_A_MONTH = {
+    "in", "of", "since", "until", "till", "by", "from", "this", "next", "last", "early", "late", "mid",
+    "during", "every", "before", "after", "through", "throughout",
+}
 
 
 def _at_sentence_start(previous_word: str | None) -> bool:
@@ -61,11 +78,11 @@ class CorrectionResult:
     confidence: float
 
 
-def _best_candidate(word: str, candidates, counts: dict, bigrams: dict, previous: str | None):
-    """Picks the candidate a typist most likely meant: common words first, then keys close together.
+def _score_candidates(word: str, candidates, counts: dict, bigrams: dict, previous: str | None):
+    """Scores each candidate by how likely a typist meant it: common words first, then keys close together.
 
     When the previous word is known, a candidate that often follows it ("so how") gets a small bonus.
-    The bonus only breaks close calls; it never adds a candidate.
+    The bonus only breaks close calls; it never adds a candidate. Returns (score, candidate) pairs, best first.
     """
     # The typing cost counts more than word frequency, so a common word does not win over a closer one.
     def score(candidate) -> float:
@@ -76,7 +93,7 @@ def _best_candidate(word: str, candidates, counts: dict, bigrams: dict, previous
             total += BIGRAM_WEIGHT * math.log10(pair + 1)
         return total
 
-    return max(candidates, key=score)
+    return sorted(((score(c), c) for c in candidates), key=lambda pair: pair[0], reverse=True)
 
 
 def _match_case(original: str, correction: str) -> str:
@@ -95,6 +112,19 @@ class SpellChecker:
             raise RuntimeError(f"Could not load symspellpy dictionary: {dictionary_path}")
         self._symspell.load_bigram_dictionary(str(files("symspellpy") / BIGRAM_NAME), term_index=0, count_index=2)
         self._hunspell = HunspellChecker()
+        # The lexicons and the misspelling map are read once, here, into sets and a dict.
+        self._lexicons = Lexicons()
+
+    @staticmethod
+    def _day_or_month(word: str, lowered: str, previous: str | None) -> CorrectionResult | None:
+        proper = _DAYS_AND_MONTHS.get(lowered)
+        if proper is None:
+            return None
+        if lowered in _AMBIGUOUS_MONTHS and previous not in _BEFORE_A_MONTH:
+            return None                      # "I may go", "we march": an ordinary word, left alone
+        if word == proper:
+            return CorrectionResult(word, word, 1.0)
+        return CorrectionResult(word, proper, RULE_CONFIDENCE)
 
     def _stretched(self, word: str, lowered: str, previous_word: str | None, abbreviations_enabled: bool) -> CorrectionResult | None:
         """A word with repeated letters that is not a word as typed (okk, sooo, thankss, plss, heyyy).
@@ -246,6 +276,17 @@ class SpellChecker:
         if apostrophe is not None:
             return CorrectionResult(word, apostrophe, RULE_CONFIDENCE)
 
+        # Days of the week and months are always capitalized (monday -> Monday).
+        day_or_month = self._day_or_month(word, lowered, previous)
+        if day_or_month is not None:
+            return day_or_month
+
+        # The curated misspelling map: exact match, checked before any guessing.
+        fixed = self._lexicons.misspellings.get(lowered)
+        if fixed is not None:
+            proper = _DAYS_AND_MONTHS.get(fixed.lower())      # wensday -> Wednesday, never wednesday
+            return CorrectionResult(word, _match_case(word, proper or fixed), RULE_CONFIDENCE)
+
         # A stretched word (okk, sooo, thankss, plss): collapse the repeated letters and look again.
         stretched = self._stretched(word, lowered, previous_word, abbreviations_enabled)
         if stretched is not None:
@@ -255,33 +296,61 @@ class SpellChecker:
         if len(lowered) <= 2:
             return CorrectionResult(word, word, 1.0)
 
-        # Layer 1: symspellpy. A distance-0 match means the word is already correct.
+        # A capitalized word that is not at the start of a sentence is a name, a brand or a loanword: never corrected.
+        capitalized = word[0].isupper()
+        sentence_start = _at_sentence_start(previous_word)
+        if capitalized and not sentence_start:
+            return CorrectionResult(word, word, 1.0)
+
+        # Words that are known: the lexicons, the informal words, the frequency list (distance 0), Hunspell.
+        if lowered in self._lexicons.words or lowered in INFORMAL_WORDS:
+            return CorrectionResult(word, word, 1.0)
         suggestions = self._symspell.lookup(lowered, Verbosity.TOP, max_edit_distance=MAX_EDIT_DISTANCE)
         if suggestions and suggestions[0].distance == 0:
             return CorrectionResult(word, word, 1.0)
-
-        # Layer 2: if Hunspell accepts the word, keep it even when symspell has a guess.
         if self._hunspell.is_valid(lowered):
             return CorrectionResult(word, word, 1.0)
 
-        if suggestions:
-            candidates = self._symspell.lookup(lowered, Verbosity.ALL, max_edit_distance=MAX_EDIT_DISTANCE)
-            best = _best_candidate(lowered, candidates, self._symspell.words, self._symspell.bigrams, previous)
-            term_count = self._symspell.words.get(best.term, 0)
-            if len(lowered) <= SHORT_WORD_MAX_LENGTH and term_count < SHORT_WORD_MIN_COUNT:
-                return CorrectionResult(word, word, 1.0)
-            confidence = symspell_confidence(best.distance, term_count)
-            return CorrectionResult(word, _match_case(word, best.term), confidence)
+        # An unknown word is not the same as a typo. It is changed only on strong evidence.
+        fixed = self._strong_fix(word, lowered, previous, strict=capitalized)
+        if fixed is not None:
+            return fixed
 
-        hunspell_suggestions = self._hunspell.suggest(lowered)
-        if hunspell_suggestions:
-            return CorrectionResult(
-                word, _match_case(word, hunspell_suggestions[0]), HUNSPELL_SUGGESTION_CONFIDENCE
-            )
-
-        # No dictionary knows this word and no correction was found: count it. Enough
-        # typings make it a personal word (the learner decides).
-        if learning_enabled:
+        # No dictionary knows this word and nothing came close: count it. Enough typings make it a personal
+        # word (the learner decides).
+        if learning_enabled and not suggestions:
             self._learner.observe_unknown(word)
         return CorrectionResult(word, word, 1.0)
+
+    def _strong_fix(self, word: str, lowered: str, previous: str | None, strict: bool) -> CorrectionResult | None:
+        """A correction for an unknown word, or None (leave it as typed). Every one of these must hold:
+        a distance-1 candidate, clearly ahead of the others, that is a frequent word, and either a typing slip
+        (swapped pair, neighbouring key, doubled letter) or Hunspell's own first suggestion. A capitalized word
+        at the start of a sentence needs both, since it may be a name."""
+        if len(lowered) < MIN_FIX_WORD_LENGTH:
+            return None
+        candidates = [c for c in self._symspell.lookup(lowered, Verbosity.ALL, max_edit_distance=1) if c.distance == 1]
+        if not candidates:
+            return None
+        scored = _score_candidates(lowered, candidates, self._symspell.words, self._symspell.bigrams, previous)
+        best_score, best = scored[0]
+        if len(scored) > 1 and best_score - scored[1][0] < AMBIGUITY_MARGIN:
+            return None
+        count = self._symspell.words.get(best.term, 0)
+        if count < MIN_TARGET_COUNT:
+            return None
+
+        typo_like = len(lowered) >= MIN_TYPO_LIKE_LENGTH and edit_penalty(lowered, best.term) <= TYPO_LIKE_PENALTY
+        if strict:
+            if not (typo_like and self._hunspell_agrees(lowered, best.term)):
+                return None
+        elif not typo_like and not self._hunspell_agrees(lowered, best.term):
+            return None
+        return CorrectionResult(word, _match_case(word, best.term), graded_fix_confidence(count))
+
+    def _hunspell_agrees(self, lowered: str, term: str) -> bool:
+        """True when Hunspell's first suggestion for the word is the same word. Asked within a time budget: if
+        Hunspell is not ready in time, that counts as no agreement and the word is left unchanged."""
+        suggestions = self._hunspell.suggest_within_budget(lowered)
+        return suggestions is not None and suggestions[:1] == [term]
 

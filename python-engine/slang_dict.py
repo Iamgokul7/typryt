@@ -10,7 +10,7 @@ abbreviation_dict.py, where the abbreviations switch controls it.
 
 # Informal words that are fine as typed but missing from the dictionaries. They are never changed, and a
 # stretched form (okk, yayyy, nahh) collapses to them.
-INFORMAL_WORDS = {"ok", "yay", "yup", "nah", "naw", "aww", "kk", "okie"}
+INFORMAL_WORDS = {"ok", "yay", "yup", "nah", "naw", "aww", "kk", "okie", "bruh"}
 
 SLANG = {
     # Pronouns and short function words
