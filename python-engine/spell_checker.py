@@ -76,6 +76,10 @@ class SpellChecker:
         self._symspell.load_bigram_dictionary(str(files("symspellpy") / BIGRAM_NAME), term_index=0, count_index=2)
         self._hunspell = HunspellChecker()
 
+    def _is_known_word(self, lowered: str) -> bool:
+        """True when the word is in the frequency list or in Hunspell."""
+        return lowered in self._symspell.words or self._hunspell.is_valid(lowered)
+
     def correct(
         self,
         word: str,
@@ -132,7 +136,7 @@ class SpellChecker:
         if slang is not None:
             return CorrectionResult(word, _match_case(word, slang), RULE_CONFIDENCE)
 
-        apostrophe = apply_apostrophe(word)
+        apostrophe = apply_apostrophe(word, is_valid=self._is_known_word)
         if apostrophe is not None:
             return CorrectionResult(word, apostrophe, RULE_CONFIDENCE)
 

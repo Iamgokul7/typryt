@@ -54,6 +54,13 @@ APOSTROPHE = {
     "couldve": "could've",
     "mightve": "might've",
     "mustve": "must've",
+
+    # No pattern can produce these
+    "aint": "ain't",
+    "arnt": "aren't",
+    "shant": "shan't",
+    "oclock": "o'clock",
+    "yall": "y'all",
 }
 
 
@@ -69,12 +76,93 @@ def fix_apostrophe_word(word: str) -> str | None:
     return None
 
 
-def apply_apostrophe(word: str) -> str | None:
+# ---- Patterns --------------------------------------------------------------------------------
+# A contraction typed without its apostrophe is a stem plus an ending, so the rules are patterns, not a
+# list of words. The explicit table above only holds what no pattern can produce (aint, oclock, yall) and
+# the forms that were already handled.
+
+# Auxiliary verbs that take n't. The stem of a typed word may be spelled wrongly by one letter (dosent, woulnt).
+_NT_AUXILIARIES = ("do", "does", "did", "is", "are", "was", "were", "has", "have", "had",
+                   "would", "could", "should", "might", "must", "need", "ought")
+_NT_ENDINGS = ("ent", "int", "nt")   # doesnt, dosent, didint
+
+_MODALS_FOR_VE = ("should", "would", "could", "might", "must")
+
+# Real words that these combinations also spell. They are left alone whatever the context
+# (its/it's and were/we're are decided separately, by the next word).
+_AMBIGUOUS = {"well", "hell", "shell", "were", "its", "ill", "id", "wed", "hed", "shed"}
+
+_PRONOUN_ENDINGS = {
+    "i": ("m", "ll", "ve", "d"),
+    "you": ("ll", "ve", "re", "d"),
+    "we": ("ll", "ve", "re", "d"),
+    "they": ("ll", "ve", "re", "d"),
+    "he": ("s", "ll", "d"),
+    "she": ("s", "ll", "d"),
+    "it": ("s", "ll", "d"),
+}
+_WH_AND_THAT = ("that", "there", "here", "who", "what", "where", "when", "why", "how",
+                "everyone", "everybody", "someone", "somebody", "anyone", "anybody", "nobody")
+
+
+def _build_forms() -> dict[str, str]:
+    forms: dict[str, str] = {}
+    for stem, endings in _PRONOUN_ENDINGS.items():
+        for ending in endings:
+            typed = stem + ending
+            if typed not in _AMBIGUOUS:
+                forms[typed] = ("I" if stem == "i" else stem) + "'" + ending
+    for stem in _WH_AND_THAT:
+        for ending in ("s", "ll", "d", "ve", "re"):
+            typed = stem + ending
+            if typed not in _AMBIGUOUS:
+                forms[typed] = stem + "'" + ending
+    for modal in _MODALS_FOR_VE:
+        forms[modal + "ve"] = modal + "'ve"
+    return forms
+
+
+_FORMS = _build_forms()
+
+
+def _edit_distance_is_one(a: str, b: str) -> bool:
+    """True when a and b differ by exactly one inserted, deleted or replaced letter."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(1 for x, y in zip(a, b) if x != y) == 1
+    short, long_ = (a, b) if len(a) < len(b) else (b, a)
+    return any(long_[:i] + long_[i + 1:] == short for i in range(len(long_)))
+
+
+def _negation(typed: str, is_valid) -> str | None:
+    """aux + nt: hadnt -> hadn't. A stem with one wrong letter (dosent, woulnt, havnt) is accepted only when the
+    typed word is not itself a valid word, so real words that end in nt are never touched."""
+    for ending in _NT_ENDINGS:
+        if not typed.endswith(ending):
+            continue
+        stem = typed[: -len(ending)]
+        if stem in _NT_AUXILIARIES:
+            return stem + "n't"
+        if len(stem) >= 3 and is_valid is not None and not is_valid(typed):
+            # When two auxiliaries are one edit away (dos: do, does), the longer one wins: typists drop letters
+            # more often than they add them.
+            close = [aux for aux in _NT_AUXILIARIES if stem[0] == aux[0] and _edit_distance_is_one(stem, aux)]
+            if close:
+                return max(close, key=len) + "n't"
+    return None
+
+
+def apply_apostrophe(word: str, is_valid=None) -> str | None:
     """Return the apostrophe form of a word, or None if no rule applies.
 
     Case is preserved: 'Dont' becomes "Don't", and 'im' becomes "I'm".
+    is_valid(lowercase_word) tells whether the typed word is a real word; it guards the one-letter-off stems.
     """
-    expansion = APOSTROPHE.get(word.lower())
+    typed = word.lower()
+    if typed in _AMBIGUOUS:
+        return None
+    expansion = APOSTROPHE.get(typed) or _FORMS.get(typed) or _negation(typed, is_valid)
     if expansion is None:
         return None
     if word[0].isupper() and not expansion[0].isupper():
