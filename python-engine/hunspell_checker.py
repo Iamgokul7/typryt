@@ -23,7 +23,7 @@ DICTIONARY_DIR = _BUNDLE_ROOT / "dictionaries"
 DICTIONARY_BASENAME = "en_US"
 
 # How long a correction waits for Hunspell's suggestions. On timeout the word is left unchanged.
-SUGGEST_BUDGET_SECONDS = 0.12
+SUGGEST_BUDGET_SECONDS = 0.30
 # Only the first few suggestions matter, and spylls produces them lazily, so the rest are never computed.
 SUGGESTION_COUNT = 3
 CACHE_SIZE = 2048
