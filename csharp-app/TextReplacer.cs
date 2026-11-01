@@ -530,7 +530,8 @@ public static class TextReplacer
         GetWindowThreadProcessId(window, out uint processId);
         try
         {
-            string name = Process.GetProcessById((int)processId).ProcessName;
+            using var process = Process.GetProcessById((int)processId);   // disposed: it is asked for on every correction
+            string name = process.ProcessName;
             return names.Any(b => string.Equals(b, name, StringComparison.OrdinalIgnoreCase));
         }
         catch (ArgumentException)

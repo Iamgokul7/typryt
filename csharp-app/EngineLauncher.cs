@@ -280,12 +280,15 @@ public sealed class EngineLauncher : IDisposable
     /// True when the engine of this launch answers its health check. A health check from the engine carries a proof that
     /// it knows the token (a keyed hash of a fresh nonce); an answer without it, from some other program on the port, does not count.
     /// </summary>
+    // One client for every health check (the watchdog asks every 2 seconds): a new client each time left connections and handlers behind.
+    private static readonly HttpClient HealthClient = new() { Timeout = TimeSpan.FromMilliseconds(500) };
+
     public static bool IsRunning()
     {
         try
         {
             string nonce = Guid.NewGuid().ToString("N");
-            using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
+            var client = HealthClient;
             using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(EngineIdentity.BaseAddress, "health"));
             request.Headers.Add(EngineIdentity.TokenHeader, EngineIdentity.Token);
             request.Headers.Add(EngineIdentity.NonceHeader, nonce);
