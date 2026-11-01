@@ -51,10 +51,21 @@ Just type. When a correction is made, a message appears for a few seconds; press
 - **Unsigned installer.** Windows SmartScreen warns about it; some antivirus tools may flag any program that installs a keyboard hook (Typryt needs one to see your typing).
 - **Browsers and the text they hold.** Typryt cannot read the text in Chrome or Edge, so it corrects from the keys it saw. After you move the cursor (arrow keys, Home, End, a click), paste, undo in the app, or press Backspace past the start of the word you are typing, the next word is left as typed rather than risk editing the wrong text. In Notepad and Word, where the text can be read, the word before the cursor is found from the real text.
 - **Notepad is slower** than browsers: a correction there takes roughly a fifth of a second, and Typryt types the correction with short pauses so Notepad does not drop keys.
-- **Word** has its own AutoCorrect; the two can both change the same word. See the test notes below for what was observed.
+- **Word** is on the default list but was **not tested**: Word's first-run privacy dialog could not be accepted by the test run, and Word's own AutoCorrect can also change the same word.
 - **Firefox, WordPad and input methods (IME).** Not tested. Typryt does not hold keys while an input method is composing or a dead key is pending.
 - **Spelling accuracy depends on a time-limited dictionary lookup.** The first time you type a misspelling the dictionary lookup may not finish in time and the word is left as typed; the same misspelling is usually fixed the next time.
 - **Only English** (US dictionary; British spellings such as *neighbour* are accepted as valid and left alone).
+
+## Measured on this release candidate
+
+Measured on the installed 1.0.2 build with the test input switch on (needed so the test tools' keys are seen), Windows 11 build 26300, one monitor at 125 %. Details and the failures are in the release test report (not part of the repository).
+
+- **Accuracy (Medium, frozen sets, run once):** held-out set: 3 of 205 valid words changed (1.5 %), 3 of 172 wrong replacements (1.7 %), 127 of 172 correct fixes (73.8 %). Sentence set (150 sentences, typed word by word through the engine): 126 exact (84 %), 0.8 % of valid words changed, 4.0 % wrong. The engine's dictionary lookup is time-limited, so the first sight of a misspelling is sometimes missed; the numbers move by a point or two between cold runs.
+- **Correction levels:** on the held-out set Low changes 69 words, Medium 131, High 134, Extreme 196, each a superset of the one before.
+- **Speed:** the engine answers in a median of 5 ms (p95 7 ms); a delimiter is held a median of 6 ms (p95 16 ms) and at most about 200 ms in a 60-minute test; a correction in Notepad takes about 0.2 s.
+- **Keys:** Chrome, "recieve now" typed at 20 ms and at 60 ms per key: 30 of 30 correct each; Notepad "lyk NOW Bye": 30 of 30 each; engine stalled or killed in the middle of a held key: 30 of 30 each; a 5,000-key test lost nothing (the one missing character was a double space the program collapses on purpose).
+- **Soak (60 minutes of typing in Chrome):** no crash, no logged error, no engine restart; the app grew from 54 to 61 MB private memory (+11.8 %); the engine stayed at 236 MB.
+- **Known problem:** in real-text tests (10 passages, 80-150 words each, typed with bursts, pauses and Backspace corrections) 13 of 16 runs matched what the engine's own answers predicted exactly; in the others a block of typed text was missing. The cause was not found; some of these coincide with test-tool activity on the same PC, but that is not proven.
 
 ## Build from source
 
