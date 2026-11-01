@@ -520,6 +520,9 @@ public partial class App : Application
                 {
                     if (job.UndoRequest)
                     {
+                        // A click on the toast's Undo button (no key count): the toast is hiding and the mouse button is still coming up, so
+                        // the window in front is not yet settled; the undo reads it to decide how to work, so it waits a moment.
+                        if (job.KeyDownCount < 0) await Task.Delay(200, ct);
                         _jobKeyDowns = job.KeyDownCount;
                         await UndoLastCorrectionAsync(ct);
                     }
