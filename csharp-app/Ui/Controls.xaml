@@ -1,0 +1,749 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:ui="clr-namespace:Typryt.Ui">
+
+    <!-- Retro neo-brutalist control library: radius 0, 3 px borders, hard offset shadows (a second layered element, never a blur),
+         mono type for labels and numbers. Colours come from the brushes in App.xaml, which ThemeManager swaps per theme. -->
+
+    <FontFamily x:Key="MonoFont">Cascadia Mono, Consolas, Courier New</FontFamily>
+    <FontFamily x:Key="SansFont">Segoe UI Variable Display, Segoe UI</FontFamily>
+
+    <ui:CapsConverter x:Key="Caps"/>
+    <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+
+    <CubicEase x:Key="EaseOut" EasingMode="EaseOut"/>
+
+    <!-- Shared move storyboards for the lift (hover) and press states. The body slides; the shadow stays where it is. -->
+    <Storyboard x:Key="LiftIn" x:Shared="False">
+        <DoubleAnimation Storyboard.TargetName="Move" Storyboard.TargetProperty="X" To="-2" Duration="{x:Static ui:Motion.D90}" EasingFunction="{StaticResource EaseOut}"/>
+        <DoubleAnimation Storyboard.TargetName="Move" Storyboard.TargetProperty="Y" To="-2" Duration="{x:Static ui:Motion.D90}" EasingFunction="{StaticResource EaseOut}"/>
+    </Storyboard>
+    <Storyboard x:Key="PressIn" x:Shared="False">
+        <DoubleAnimation Storyboard.TargetName="Move" Storyboard.TargetProperty="X" To="4" Duration="{x:Static ui:Motion.D90}" EasingFunction="{StaticResource EaseOut}"/>
+        <DoubleAnimation Storyboard.TargetName="Move" Storyboard.TargetProperty="Y" To="4" Duration="{x:Static ui:Motion.D90}" EasingFunction="{StaticResource EaseOut}"/>
+    </Storyboard>
+    <Storyboard x:Key="Rest" x:Shared="False">
+        <DoubleAnimation Storyboard.TargetName="Move" Storyboard.TargetProperty="X" To="0" Duration="{x:Static ui:Motion.D90}" EasingFunction="{StaticResource EaseOut}"/>
+        <DoubleAnimation Storyboard.TargetName="Move" Storyboard.TargetProperty="Y" To="0" Duration="{x:Static ui:Motion.D90}" EasingFunction="{StaticResource EaseOut}"/>
+    </Storyboard>
+
+    <!-- Focus: a 3 px dashed outline, 4 px away from the control. -->
+    <Style x:Key="DashedFocus">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Rectangle Margin="-7" Stroke="{DynamicResource FocusBrush}" StrokeThickness="3" StrokeDashArray="2 2" SnapsToDevicePixels="True" IsHitTestVisible="False"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== Text ===== -->
+    <Style x:Key="Cap" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+    </Style>
+    <Style x:Key="Hint" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource SansFont}"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+    <Style x:Key="RowLabel" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource SansFont}"/>
+        <Setter Property="FontSize" Value="17"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+    <Style x:Key="MonoText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+    </Style>
+
+    <!-- ===== Card: 3 px border, 6 px hard shadow ===== -->
+    <Style x:Key="HardCard" TargetType="ContentControl">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="Padding" Value="24,18"/>
+        <Setter Property="IsTabStop" Value="False"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContentControl">
+                    <Grid SnapsToDevicePixels="True">
+                        <Border Margin="6,6,-6,-6" Background="{DynamicResource CardShadowBrush}"/>
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== Button: 44 high, 3 px border, 4 px hard shadow; lifts on hover, sinks on press ===== -->
+    <ControlTemplate x:Key="HardButtonTemplate" TargetType="Button">
+        <Grid SnapsToDevicePixels="True">
+            <Border x:Name="Shadow" Margin="4,4,-4,-4" Background="{DynamicResource ButtonShadowBrush}"/>
+            <Border x:Name="Body" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3"
+                    Padding="{TemplateBinding Padding}">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="Move"/>
+                </Border.RenderTransform>
+                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+            </Border>
+            <Rectangle x:Name="Dash" Visibility="Collapsed" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="3" StrokeDashArray="2 2"/>
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Trigger.EnterActions><BeginStoryboard Storyboard="{StaticResource LiftIn}"/></Trigger.EnterActions>
+                <Trigger.ExitActions><BeginStoryboard Storyboard="{StaticResource Rest}"/></Trigger.ExitActions>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Trigger.EnterActions><BeginStoryboard Storyboard="{StaticResource PressIn}"/></Trigger.EnterActions>
+                <Trigger.ExitActions><BeginStoryboard Storyboard="{StaticResource LiftIn}"/></Trigger.ExitActions>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Shadow" Property="Visibility" Value="Collapsed"/>
+                <Setter TargetName="Body" Property="BorderBrush" Value="Transparent"/>
+                <Setter TargetName="Dash" Property="Visibility" Value="Visible"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="HardToggleTemplate" TargetType="ToggleButton">
+        <Grid SnapsToDevicePixels="True">
+            <Border x:Name="Shadow" Margin="4,4,-4,-4" Background="{DynamicResource ButtonShadowBrush}"/>
+            <Border x:Name="Body" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3"
+                    Padding="{TemplateBinding Padding}">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="Move"/>
+                </Border.RenderTransform>
+                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+            </Border>
+            <Rectangle x:Name="Dash" Visibility="Collapsed" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="3" StrokeDashArray="2 2"/>
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Body" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Trigger.EnterActions><BeginStoryboard Storyboard="{StaticResource LiftIn}"/></Trigger.EnterActions>
+                <Trigger.ExitActions><BeginStoryboard Storyboard="{StaticResource Rest}"/></Trigger.ExitActions>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Trigger.EnterActions><BeginStoryboard Storyboard="{StaticResource PressIn}"/></Trigger.EnterActions>
+                <Trigger.ExitActions><BeginStoryboard Storyboard="{StaticResource LiftIn}"/></Trigger.ExitActions>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Shadow" Property="Visibility" Value="Collapsed"/>
+                <Setter TargetName="Body" Property="BorderBrush" Value="Transparent"/>
+                <Setter TargetName="Dash" Property="Visibility" Value="Visible"/>
+                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <DataTemplate x:Key="CapsContent">
+        <TextBlock Text="{Binding Converter={StaticResource Caps}}" TextTrimming="CharacterEllipsis"/>
+    </DataTemplate>
+
+    <Style x:Key="HardButton" TargetType="Button">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Height" Value="44"/>
+        <Setter Property="MinWidth" Value="44"/>
+        <Setter Property="Padding" Value="18,0"/>
+        <Setter Property="Margin" Value="0,0,4,4"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="ContentTemplate" Value="{StaticResource CapsContent}"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource DashedFocus}"/>
+        <Setter Property="Template" Value="{StaticResource HardButtonTemplate}"/>
+    </Style>
+
+    <!-- Primary: accent fill, black text. -->
+    <Style x:Key="HardButtonPrimary" TargetType="Button" BasedOn="{StaticResource HardButton}">
+        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+        <Style.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- Toggle button (theme and grid choices, navigation-like choices): accent when checked. -->
+    <Style x:Key="HardToggle" TargetType="ToggleButton">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Height" Value="44"/>
+        <Setter Property="MinWidth" Value="44"/>
+        <Setter Property="Padding" Value="18,0"/>
+        <Setter Property="Margin" Value="0,0,4,4"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="ContentTemplate" Value="{StaticResource CapsContent}"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource DashedFocus}"/>
+        <Setter Property="Template" Value="{StaticResource HardToggleTemplate}"/>
+    </Style>
+
+    <!-- The four labels under the Home slider: bordered, no shadow, accent when selected. -->
+    <Style x:Key="LevelLabel" TargetType="ToggleButton">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Height" Value="40"/>
+        <Setter Property="Padding" Value="12,0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="ContentTemplate" Value="{StaticResource CapsContent}"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource DashedFocus}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Body" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3"
+                            Padding="{TemplateBinding Padding}" RenderTransformOrigin="0.5,0.5" SnapsToDevicePixels="True">
+                        <Border.RenderTransform><TranslateTransform x:Name="Move"/></Border.RenderTransform>
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Body" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Move" Storyboard.TargetProperty="Y" To="-2" Duration="{x:Static ui:Motion.D90}" EasingFunction="{StaticResource EaseOut}"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Move" Storyboard.TargetProperty="Y" To="0" Duration="{x:Static ui:Motion.D90}" EasingFunction="{StaticResource EaseOut}"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== Window buttons: 52 wide with a left divider; accent on hover ===== -->
+    <Style x:Key="WindowButton" TargetType="Button">
+        <Setter Property="Width" Value="52"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+        <Setter Property="FontSize" Value="20"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Focusable" Value="True"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Face" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3,0,0,0">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Face" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Face" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== Switch (a CheckBox, so the toggle behaviour and its automation stay the same): 72x36 with a sliding 26x26 block ===== -->
+    <Storyboard x:Key="SwitchOn" x:Shared="False">
+        <DoubleAnimation Storyboard.TargetName="BlockMove" Storyboard.TargetProperty="X" To="36" Duration="{x:Static ui:Motion.D220}" EasingFunction="{StaticResource EaseOut}"/>
+    </Storyboard>
+    <Storyboard x:Key="SwitchOff" x:Shared="False">
+        <DoubleAnimation Storyboard.TargetName="BlockMove" Storyboard.TargetProperty="X" To="0" Duration="{x:Static ui:Motion.D220}" EasingFunction="{StaticResource EaseOut}"/>
+    </Storyboard>
+
+    <Style x:Key="SwitchRow" TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource SansFont}"/>
+        <Setter Property="FontSize" Value="17"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Tag" Value="1"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource DashedFocus}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Border x:Name="Row" MinHeight="56" Background="Transparent" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,2" SnapsToDevicePixels="True">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter VerticalAlignment="Center" Margin="0,8,16,8" RecognizesAccessKey="True">
+                                <ContentPresenter.Resources>
+                                    <Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap"/></Style>
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
+                            <Grid Grid.Column="1" VerticalAlignment="Center" Margin="0,0,3,3" RenderTransformOrigin="1,0.5">
+                                <Grid.LayoutTransform>
+                                    <ScaleTransform ScaleX="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" ScaleY="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"/>
+                                </Grid.LayoutTransform>
+                                <Grid x:Name="Switch" Width="72" Height="36">
+                                    <Border Margin="3,3,-3,-3" Background="{DynamicResource ButtonShadowBrush}"/>
+                                    <Border x:Name="Track" Background="{DynamicResource Panel2Brush}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3">
+                                        <Border.RenderTransform><TranslateTransform x:Name="Move"/></Border.RenderTransform>
+                                        <Grid>
+                                            <TextBlock x:Name="OffText" Text="OFF" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
+                                                       FontFamily="{StaticResource MonoFont}" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                            <TextBlock x:Name="OnText" Text="ON" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0" Visibility="Collapsed"
+                                                       FontFamily="{StaticResource MonoFont}" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource OnAccentBrush}"/>
+                                            <Border x:Name="Block" Width="26" Height="26" HorizontalAlignment="Left" Margin="2,0,0,0" Background="{DynamicResource TextPrimaryBrush}">
+                                                <Border.RenderTransform><TranslateTransform x:Name="BlockMove"/></Border.RenderTransform>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </Grid>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter TargetName="Block" Property="Background" Value="{DynamicResource OnAccentBrush}"/>
+                            <Setter TargetName="OnText" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="OffText" Property="Visibility" Value="Collapsed"/>
+                            <Trigger.EnterActions><BeginStoryboard Storyboard="{StaticResource SwitchOn}"/></Trigger.EnterActions>
+                            <Trigger.ExitActions><BeginStoryboard Storyboard="{StaticResource SwitchOff}"/></Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Row" Property="Background" Value="{DynamicResource Panel2Brush}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Row" Property="BorderBrush" Value="{DynamicResource FocusBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                            <Setter TargetName="Switch" Property="Opacity" Value="0.6"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- The big switch on Home: the same switch, larger, without the row. -->
+    <Style x:Key="BigSwitch" TargetType="CheckBox">
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource DashedFocus}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Grid Margin="0,0,6,6" SnapsToDevicePixels="True" Background="Transparent">
+                        <Grid.LayoutTransform><ScaleTransform ScaleX="1.5" ScaleY="1.5"/></Grid.LayoutTransform>
+                        <Grid Width="72" Height="36">
+                            <Border Margin="3,3,-3,-3" Background="{DynamicResource ButtonShadowBrush}"/>
+                            <Border x:Name="Track" Background="{DynamicResource Panel2Brush}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3">
+                                <Grid>
+                                    <TextBlock x:Name="OffText" Text="OFF" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
+                                               FontFamily="{StaticResource MonoFont}" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <TextBlock x:Name="OnText" Text="ON" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0" Visibility="Collapsed"
+                                               FontFamily="{StaticResource MonoFont}" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource OnAccentBrush}"/>
+                                    <Border x:Name="Block" Width="26" Height="26" HorizontalAlignment="Left" Margin="2,0,0,0" Background="{DynamicResource TextPrimaryBrush}">
+                                        <Border.RenderTransform><TranslateTransform x:Name="BlockMove"/></Border.RenderTransform>
+                                    </Border>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter TargetName="Block" Property="Background" Value="{DynamicResource OnAccentBrush}"/>
+                            <Setter TargetName="OnText" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="OffText" Property="Visibility" Value="Collapsed"/>
+                            <Trigger.EnterActions><BeginStoryboard Storyboard="{StaticResource SwitchOn}"/></Trigger.EnterActions>
+                            <Trigger.ExitActions><BeginStoryboard Storyboard="{StaticResource SwitchOff}"/></Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== Slider (Home level, Settings toast duration) ===== -->
+    <Style x:Key="HardSlider" TargetType="ui:StopSlider">
+        <Setter Property="Minimum" Value="0"/>
+        <Setter Property="Maximum" Value="3"/>
+        <Setter Property="TickFrequency" Value="1"/>
+        <Setter Property="SmallChange" Value="1"/>
+        <Setter Property="LargeChange" Value="1"/>
+        <Setter Property="IsSnapToTickEnabled" Value="True"/>
+        <Setter Property="Height" Value="48"/>
+        <Setter Property="Focusable" Value="True"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ui:StopSlider">
+                    <Grid x:Name="PART_Host" Background="Transparent" Height="48" VerticalAlignment="Top" SnapsToDevicePixels="True" Cursor="Hand">
+                        <Border Height="16" VerticalAlignment="Top" Margin="0,10,0,0" Background="{DynamicResource Panel2Brush}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3"/>
+                        <Border x:Name="PART_Fill" Height="10" Width="14" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="3,13,0,0" Background="{DynamicResource AccentBrush}"/>
+                        <ui:StopPanel x:Name="PART_Ticks" Height="10" VerticalAlignment="Top" Margin="0,38,0,0"/>
+                        <Grid x:Name="PART_Thumb" Width="34" Height="34" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,1,0,0">
+                            <Border Margin="4,4,-4,-4" Background="{DynamicResource ButtonShadowBrush}"/>
+                            <Border Background="{DynamicResource AccentBrush}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3"/>
+                            <Rectangle x:Name="FocusRing" Margin="-7" Visibility="Collapsed" Stroke="{DynamicResource FocusBrush}" StrokeThickness="3" StrokeDashArray="2 2"/>
+                        </Grid>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="FocusRing" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== Text input: 52 high, 3 px border, inset shadow, muted placeholder (taken from Tag) ===== -->
+    <Style x:Key="HardInput" TargetType="TextBox">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="CaretBrush" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+        <Setter Property="FontSize" Value="17"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Height" Value="52"/>
+        <Setter Property="Padding" Value="14,0"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource DashedFocus}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Grid SnapsToDevicePixels="True">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3"/>
+                        <Rectangle Height="4" VerticalAlignment="Top" Margin="3,3,3,0" Fill="{DynamicResource Panel2Brush}"/>
+                        <Rectangle Width="4" HorizontalAlignment="Left" Margin="3,7,0,3" Fill="{DynamicResource Panel2Brush}"/>
+                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center" Focusable="False"
+                                      HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
+                        <TextBlock x:Name="Placeholder" Text="{TemplateBinding Tag}" Margin="{TemplateBinding Padding}" VerticalAlignment="Center" IsHitTestVisible="False"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Visibility="Collapsed" TextTrimming="CharacterEllipsis"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Text" Value="">
+                            <Setter TargetName="Placeholder" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Placeholder" Property="Opacity" Value="0.7"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== Dropdown: 46 high, bordered, hard shadow, drawn triangle ===== -->
+    <Style x:Key="HardDropdownItem" TargetType="ComboBoxItem">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+        <Setter Property="FontSize" Value="15"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Padding" Value="14,0"/>
+        <Setter Property="MinHeight" Value="46"/>
+        <Setter Property="ContentTemplate" Value="{StaticResource CapsContent}"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="Row" Background="Transparent" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,2" Padding="{TemplateBinding Padding}" MinHeight="{TemplateBinding MinHeight}">
+                        <ContentPresenter VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Row" Property="Background" Value="{DynamicResource Panel2Brush}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Row" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HardDropdown" TargetType="ComboBox">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+        <Setter Property="FontSize" Value="15"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Height" Value="46"/>
+        <Setter Property="Margin" Value="0,0,4,4"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource HardDropdownItem}"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource DashedFocus}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBox">
+                    <Grid x:Name="Root" SnapsToDevicePixels="True">
+                        <Border Margin="4,4,-4,-4" Background="{DynamicResource ButtonShadowBrush}"/>
+                        <Grid x:Name="Face">
+                            <Grid.RenderTransform><TranslateTransform x:Name="Move"/></Grid.RenderTransform>
+                            <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3"/>
+                            <ContentPresenter Margin="14,0,40,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{StaticResource CapsContent}"/>
+                            <Path HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0" Data="M 0,0 L 14,0 L 7,9 Z"
+                                  Fill="{DynamicResource TextPrimaryBrush}" IsHitTestVisible="False"/>
+                            <ToggleButton Opacity="0" Focusable="False" ClickMode="Press"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"/>
+                        </Grid>
+                        <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" PopupAnimation="None"
+                               Focusable="False" VerticalOffset="6">
+                            <Grid MinWidth="{Binding ActualWidth, ElementName=Root}" MaxHeight="{TemplateBinding MaxDropDownHeight}" Margin="0,0,6,6">
+                                <Border Margin="6,6,-6,-6" Background="{DynamicResource CardShadowBrush}"/>
+                                <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3">
+                                    <ScrollViewer>
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Grid>
+                        </Popup>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Trigger.EnterActions><BeginStoryboard Storyboard="{StaticResource LiftIn}"/></Trigger.EnterActions>
+                            <Trigger.ExitActions><BeginStoryboard Storyboard="{StaticResource Rest}"/></Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Root" Property="Opacity" Value="0.6"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== Lists ===== -->
+    <Style x:Key="HardList" TargetType="ListBox">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+        <Setter Property="VirtualizingPanel.ScrollUnit" Value="Pixel"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBox">
+                    <ScrollViewer Focusable="False" Padding="0" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                        <ItemsPresenter/>
+                    </ScrollViewer>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Selectable row (Dictionary): hover panel2, selected accent with black text. -->
+    <Style x:Key="WordRow" TargetType="ListBoxItem">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource SansFont}"/>
+        <Setter Property="FontSize" Value="17"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Row" MinHeight="52" Padding="20,0" Background="Transparent" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,2" SnapsToDevicePixels="True">
+                        <ContentPresenter VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Row" Property="Background" Value="{DynamicResource Panel2Brush}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Row" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Read-only row (Recent corrections): the same look, not selectable. -->
+    <Style x:Key="HistoryRow" TargetType="ListBoxItem">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border MinHeight="62" Background="Transparent" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,2" SnapsToDevicePixels="True">
+                        <ContentPresenter VerticalAlignment="Center"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== Tag ("Undone") ===== -->
+    <Style x:Key="Tag" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+        <Setter Property="Padding" Value="8,2"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- ===== Scrollbar: thin, square thumb with a 2 px border ===== -->
+    <Style TargetType="ScrollBar">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Width" Value="14"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Border Background="{DynamicResource Panel2Brush}" Width="14">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageUpCommand" Focusable="False" IsTabStop="False">
+                                    <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template>
+                                </RepeatButton>
+                            </Track.DecreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border Background="{DynamicResource AccentBrush}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="2" MinHeight="28"/>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageDownCommand" Focusable="False" IsTabStop="False">
+                                    <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template>
+                                </RepeatButton>
+                            </Track.IncreaseRepeatButton>
+                        </Track>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Width" Value="Auto"/>
+                <Setter Property="Height" Value="14"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ScrollBar">
+                            <Border Background="{DynamicResource Panel2Brush}" Height="14">
+                                <Track x:Name="PART_Track">
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageLeftCommand" Focusable="False" IsTabStop="False">
+                                            <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template>
+                                        </RepeatButton>
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.Thumb>
+                                        <Thumb>
+                                            <Thumb.Template>
+                                                <ControlTemplate TargetType="Thumb">
+                                                    <Border Background="{DynamicResource AccentBrush}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="2" MinWidth="28"/>
+                                                </ControlTemplate>
+                                            </Thumb.Template>
+                                        </Thumb>
+                                    </Track.Thumb>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageRightCommand" Focusable="False" IsTabStop="False">
+                                            <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template>
+                                        </RepeatButton>
+                                    </Track.IncreaseRepeatButton>
+                                </Track>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ===== Navigation tabs: chunky buttons across the top; the current one is accent-filled ===== -->
+    <Style x:Key="NavTab" TargetType="TabItem">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Margin" Value="0,12,14,12"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource DashedFocus}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabItem">
+                    <Grid SnapsToDevicePixels="True" Height="44">
+                        <Border x:Name="Shadow" Margin="4,4,-4,-4" Background="{DynamicResource ButtonShadowBrush}"/>
+                        <Border x:Name="Body" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="3" Padding="22,0">
+                            <Border.RenderTransform><TranslateTransform x:Name="Move"/></Border.RenderTransform>
+                            <TextBlock Text="{Binding Header, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource Caps}}" VerticalAlignment="Center"/>
+                        </Border>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Body" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Trigger.EnterActions><BeginStoryboard Storyboard="{StaticResource LiftIn}"/></Trigger.EnterActions>
+                            <Trigger.ExitActions><BeginStoryboard Storyboard="{StaticResource Rest}"/></Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="NavTabs" TargetType="TabControl">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource NavTab}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabControl">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" IsItemsHost="True" Orientation="Horizontal" Margin="24,0,24,0" Height="68" Background="Transparent"/>
+                        <ContentPresenter Grid.Row="1" ContentSource="SelectedContent"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>

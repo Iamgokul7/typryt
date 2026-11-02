@@ -57,6 +57,7 @@ public sealed class AppConfig
     [JsonPropertyName("toast_seconds")] public int ToastSeconds { get; set; } = 3;
     [JsonPropertyName("toast_corner")] public string ToastCorner { get; set; } = "bottom-right";
     [JsonPropertyName("undo_block_hours")] public int UndoBlockHours { get; set; } = 24;
+    [JsonPropertyName("grid_background_enabled")] public bool GridBackgroundEnabled { get; set; } = true;
 }
 
 /// <summary>
@@ -110,6 +111,9 @@ public sealed class PermissionManager
 
     /// <summary>Turns all corrections on or off.</summary>
     public bool MasterEnabled { get => _config.MasterEnabled; set => _config.MasterEnabled = value; }
+
+    /// <summary>Whether the faint animated grid is drawn behind the window. On by default.</summary>
+    public bool GridBackgroundEnabled { get => _config.GridBackgroundEnabled; set => _config.GridBackgroundEnabled = value; }
 
     public bool AbbreviationsEnabled { get => _config.AbbreviationsEnabled; set => _config.AbbreviationsEnabled = value; }
 

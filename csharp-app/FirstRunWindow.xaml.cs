@@ -14,6 +14,8 @@ public partial class FirstRunWindow : Window
         AppList.ItemsSource = apps.ToList();
     }
 
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         DialogResult = true;

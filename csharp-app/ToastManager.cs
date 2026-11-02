@@ -5,6 +5,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
+using Typryt.Ui;
 
 namespace Typryt;
 
@@ -20,7 +21,9 @@ public sealed class ToastManager
 
     /// <summary>"top-left", "top-right", "bottom-left", or "bottom-right". Set from the settings.</summary>
     public string Corner { get; set; } = "bottom-right";
-    private const int FadeMilliseconds = 180;
+
+    /// <summary>The current undo key as shown on the toast, for example "ALT+U". Set from the settings before each Show.</summary>
+    public string UndoKeyLabel { get; set; } = "ALT+U";
     private const int MarginPixels = 16;
 
     private static readonly Color Background = Color.FromRgb(0x1C, 0x1C, 0x1E);
@@ -28,6 +31,7 @@ public sealed class ToastManager
     private static readonly Color Accent = Color.FromRgb(0xE8, 0x62, 0x0A);
 
     private Window? _window;
+    private TranslateTransform? _slide;
     private DispatcherTimer? _timer;
     private Action? _onUndo;
 
@@ -71,7 +75,7 @@ public sealed class ToastManager
         _window = null;
         if (window is null) return;
 
-        var fade = new DoubleAnimation(window.Opacity, 0, TimeSpan.FromMilliseconds(FadeMilliseconds));
+        var fade = new DoubleAnimation(window.Opacity, 0, Motion.D160);
         fade.Completed += (_, _) => window.Close();
         window.BeginAnimation(UIElement.OpacityProperty, fade);
     }
@@ -88,24 +92,19 @@ public sealed class ToastManager
         {
             Text = message,
             Foreground = ThemeBrush("TextPrimaryBrush", Foreground),
-            FontFamily = new FontFamily("Segoe UI"),
-            FontSize = 14,
+            FontFamily = new FontFamily("Cascadia Mono, Consolas, Courier New"),
+            FontSize = 17,
+            FontWeight = FontWeights.Bold,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 14, 0),
         };
 
         var undo = new Button
         {
             Content = "Undo",
-            Foreground = new SolidColorBrush(Accent),
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(0),
-            FontFamily = new FontFamily("Segoe UI"),
-            FontSize = 14,
-            FontWeight = FontWeights.SemiBold,
-            Cursor = System.Windows.Input.Cursors.Hand,
-            Padding = new Thickness(6, 2, 6, 2),
-            Margin = new Thickness(0, 0, 4, 0),
+            Style = (Style)Application.Current.FindResource("HardButtonPrimary"),
+            Height = 40,
+            Margin = new Thickness(14, 0, 4, 4),
+            Padding = new Thickness(16, 0, 16, 0),
             Focusable = false,
         };
         undo.Click += (_, _) =>
@@ -117,29 +116,47 @@ public sealed class ToastManager
 
         var close = new Button
         {
-            Content = "✕",
-            Foreground = ThemeBrush("TextPrimaryBrush", Foreground),
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(0),
-            FontSize = 12,
-            Cursor = System.Windows.Input.Cursors.Hand,
-            Padding = new Thickness(6, 2, 6, 2),
+            Content = "×",
+            Style = (Style)Application.Current.FindResource("HardButton"),
+            Width = 40,
+            Height = 40,
+            Padding = new Thickness(0),
+            FontSize = 20,
+            Margin = new Thickness(10, 0, 4, 4),
             Focusable = false,
         };
         close.Click += (_, _) => Hide();
 
         var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         row.Children.Add(text);
-        if (showUndo) row.Children.Add(undo);
+        if (showUndo)
+        {
+            row.Children.Add(new TextBlock
+            {
+                Text = UndoKeyLabel,
+                Foreground = ThemeBrush("TextSecondaryBrush", Foreground),
+                FontFamily = new FontFamily("Cascadia Mono, Consolas, Courier New"),
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(14, 0, 0, 0),
+            });
+            row.Children.Add(undo);
+        }
         row.Children.Add(close);
 
-        var card = new Border
+        // A card with a 3 px border and a 6 px hard shadow (a second layered element, no blur).
+        var card = new Grid { Margin = new Thickness(0, 0, 6, 6) };
+        card.Children.Add(new Border { Margin = new Thickness(6, 6, -6, -6), Background = ThemeBrush("CardShadowBrush", Background) });
+        card.Children.Add(new Border
         {
             Background = ThemeBrush("SurfaceBrush", Background),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(16, 10, 10, 10),
+            BorderBrush = ThemeBrush("TextPrimaryBrush", Foreground),
+            BorderThickness = new Thickness(3),
+            Padding = new Thickness(18, 10, 10, 6),
             Child = row,
-        };
+        });
+        _slide = new TranslateTransform(0, Motion.Enabled ? 8 : 0);
+        card.RenderTransform = _slide;
 
         var window = new Window
         {
@@ -167,10 +184,15 @@ public sealed class ToastManager
         window.Top = top ? area.Top + MarginPixels : area.Bottom - window.ActualHeight - MarginPixels;
     }
 
-    private static void FadeTo(Window window, double opacity)
+    private void FadeTo(Window window, double opacity)
     {
         window.BeginAnimation(UIElement.OpacityProperty,
-            new DoubleAnimation(opacity, TimeSpan.FromMilliseconds(FadeMilliseconds)));
+            new DoubleAnimation(opacity, Motion.D160));
+        if (_slide is { Y: > 0 })
+        {
+            _slide.BeginAnimation(TranslateTransform.YProperty,
+                new DoubleAnimation(0, Motion.D160) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+        }
     }
 
     // WS_EX_NOACTIVATE stops the window from taking focus when shown or clicked.
