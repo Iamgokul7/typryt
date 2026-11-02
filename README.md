@@ -53,19 +53,21 @@ Just type. When a correction is made, a message appears for a few seconds; press
 - **Notepad is slower** than browsers: a correction there takes roughly a fifth of a second, and Typryt types the correction with short pauses so Notepad does not drop keys.
 - **Word** is on the default list but was **not tested**: Word's first-run privacy dialog could not be accepted by the test run, and Word's own AutoCorrect can also change the same word.
 - **Firefox, WordPad and input methods (IME).** Not tested. Typryt does not hold keys while an input method is composing or a dead key is pending.
-- **Spelling accuracy depends on a time-limited dictionary lookup.** The first time you type a misspelling the dictionary lookup may not finish in time and the word is left as typed; the same misspelling is usually fixed the next time.
+- **Spelling accuracy depends on a time-limited dictionary lookup** (300 ms). A word whose lookup does not finish in time is left as typed and fixed the next time.
+- **Windows text services can interfere in Chrome.** With "text suggestions" for hardware keyboards on, Windows or Chrome sometimes deletes one extra character right after a correction that rewrites the middle of a word (the space before it). It happens about 1 time in 3 when the same keys are typed with Typryt switched off, and more often with Typryt's faster typing: in a 60-minute test 6 of 82 passages lost one space this way (always the same misspelling pair). Typryt cannot detect it. Turning off Windows' text suggestions was not tried.
+- **Memory.** The app's private memory grows slowly while you type (about 0.2 MB a minute in the 60-minute test; the .NET heap itself stays at 3 to 5 MB). The cause is not found; restarting the app resets it.
 - **Only English** (US dictionary; British spellings such as *neighbour* are accepted as valid and left alone).
 
 ## Measured on this release candidate
 
 Measured on the installed 1.0.2 build with the test input switch on (needed so the test tools' keys are seen), Windows 11 build 26300, one monitor at 125 %. Details and the failures are in the release test report (not part of the repository).
 
-- **Accuracy (Medium, frozen sets, run once):** held-out set: 3 of 205 valid words changed (1.5 %), 3 of 172 wrong replacements (1.7 %), 127 of 172 correct fixes (73.8 %). Sentence set (150 sentences, typed word by word through the engine): 126 exact (84 %), 0.8 % of valid words changed, 4.0 % wrong. The engine's dictionary lookup is time-limited, so the first sight of a misspelling is sometimes missed; the numbers move by a point or two between cold runs.
-- **Correction levels:** on the held-out set Low changes 69 words, Medium 131, High 134, Extreme 196, each a superset of the one before.
-- **Speed:** the engine answers in a median of 5 ms (p95 7 ms); a delimiter is held a median of 6 ms (p95 16 ms) and at most about 200 ms in a 60-minute test; a correction in Notepad takes about 0.2 s.
+- **Accuracy (Medium, frozen sets, run once):** held-out set: 3 of 205 valid words changed (1.5 %), 3 of 172 wrong replacements (1.7 %), 151 of 172 correct fixes (87.8 %, the same in 4 of 4 cold starts). Sentence set (150 sentences, typed word by word through the engine): 127 exact (84.7 %) in every cold start, 0.8 % of valid words changed, 4.0 % wrong.
+- **Correction levels:** on the held-out set Low changes 69 words, Medium 155, High 158, Extreme 196, each a superset of the one before.
+- **Speed:** the engine answers in a median of 5 ms (p95 7 ms); a delimiter is held a median of 6 ms (p95 16 ms) and at most about 200 ms in a 60-minute test; from the key to the corrected text a correction takes a median of 107 ms in Chrome (80 ms of it a wait that stops the last character being lost) and 128 ms in Notepad.
 - **Keys:** Chrome, "recieve now" typed at 20 ms and at 60 ms per key: 30 of 30 correct each; Notepad "lyk NOW Bye": 30 of 30 each; engine stalled or killed in the middle of a held key: 30 of 30 each; a 5,000-key test lost nothing (the one missing character was a double space the program collapses on purpose).
-- **Soak (60 minutes of typing in Chrome):** no crash, no logged error, no engine restart; the app grew from 54 to 61 MB private memory (+11.8 %); the engine stayed at 236 MB.
-- **Known problem:** in real-text tests (10 passages, 80-150 words each, typed with bursts, pauses and Backspace corrections) 13 of 16 runs matched what the engine's own answers predicted exactly; in the others a block of typed text was missing. The cause was not found; some of these coincide with test-tool activity on the same PC, but that is not proven.
+- **Soak (60 minutes of typing in Chrome):** no crash, no logged error, no engine restart; the app grew from 47 to 56 MB private memory (+20 %, see Known limitations); the engine stayed at 236 MB.
+- **Real text:** in a 60-minute run of ten passages typed with bursts, pauses and Backspace corrections, 76 of 82 passages came out exactly as the engine's answers predicted; the other 6 each lost one space (the Windows text-service effect described above). No keystroke was lost in any other place.
 
 ## Build from source
 

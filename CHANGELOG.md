@@ -17,6 +17,11 @@ Everything since the 1.0.0 tag. Test evidence for this release is summarised in 
 - A missing space after a comma or ellipsis typed into the next word is added (BUG-15).
 - New lexicons for technical, Indian-English, name, place and brand words and a curated misspelling map; the Hunspell dictionary is read through the pure-Python `spylls` package.
 
+### Verification round
+- The Hunspell agreement check waits up to 300 ms instead of 120 ms, so whether a misspelling is fixed no longer depends on timing (held-out correct fixes 71 % on a cold start before, 87.8 % after; sentence set 125 to 127 exact).
+- The browser settle after a correction batch is 80 ms (the last character of a correction was lost 9 % of the time at 0 ms, 5 % at 20 ms, 0 of 40 at 80 ms).
+- The toast's Undo click waits 200 ms before reading the window; a process object looked up on every correction is disposed; one shared HTTP client is used for engine health checks.
+
 ### Application layer
 - The delimiter you type (Space, punctuation, Enter, Tab) is held while the word is corrected, then delivered, so only the word changes and no key is lost. A timer in the keyboard hook releases a held key after 150 ms (300 ms for Enter and Tab) whatever the correction is doing.
 - Quoted and bracketed words, and a word before a period at the end of the text, are corrected.
