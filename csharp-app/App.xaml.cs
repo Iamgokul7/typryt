@@ -873,10 +873,10 @@ public partial class App : Application
         {
             if (noUndo) _undo.Clear();
             else if (!spanFix) _undo.Record(word.Text, corrected, word.Trail, keySequence);
-            _stats.RecordCorrection(word.Text, corrected);
+            if (!TestMode.DisableStats) _stats.RecordCorrection(word.Text, corrected);
             ShowToast(word.Text, corrected);
             Log.Write("correct", $"corrected {word.Text.Length} -> {corrected.Length} letters in {sw.ElapsedMilliseconds} ms (key to start {queueMs} ms, safety check {safetyMs} ms, engine {engineMs} ms, replace {replaceMs} ms, key held {holdMs:0} ms, key to corrected text {toTextMs} ms)");
-            _ = VerifyAfterAsync(corrected + word.Trail, keySequence);
+            if (!TestMode.DisableVerify) _ = VerifyAfterAsync(corrected + word.Trail, keySequence);
         }
     }
 
@@ -964,7 +964,7 @@ public partial class App : Application
         if (correction.IsSpan)
         {
             _lastWord = null;
-            if (correction.StatsOriginal is not null && correction.StatsCorrected is not null)
+            if (!TestMode.DisableStats && correction.StatsOriginal is not null && correction.StatsCorrected is not null)
             {
                 _stats.RecordUndo(correction.StatsOriginal, correction.StatsCorrected);
             }
@@ -972,7 +972,7 @@ public partial class App : Application
         else
         {
             _lastWord = new ScreenWord(correction.Original, correction.Trail);
-            _stats.RecordUndo(correction.Original, correction.Corrected);
+            if (!TestMode.DisableStats) _stats.RecordUndo(correction.Original, correction.Corrected);
         }
 
         // An undo reverts only this correction. The word is not blocked: when it is typed again it can be corrected.

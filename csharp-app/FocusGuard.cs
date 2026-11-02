@@ -25,6 +25,11 @@ internal static class FocusGuard
 
     public static void Start()
     {
+        if (TestMode.DisableFocusGuard)
+        {
+            _blocked = false;
+            return;
+        }
         _handler = OnFocusChanged;
         Automation.AddAutomationFocusChangedEventHandler(_handler);
 
@@ -53,6 +58,7 @@ internal static class FocusGuard
     /// </summary>
     public static async Task<bool> IsSafeAsync(int generation)
     {
+        if (TestMode.DisableFocusGuard) return generation == Generation;
         if (generation != Generation) return false;
 
         var read = Task.Run(() => IsPasswordOrUnknown(FocusedElementOrNull()));
