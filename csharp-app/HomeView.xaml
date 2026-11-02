@@ -4,8 +4,8 @@
              xmlns:ui="clr-namespace:Typryt.Ui"
              Foreground="{DynamicResource TextPrimaryBrush}"
              FontFamily="{StaticResource SansFont}" FontSize="14">
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <Grid MaxWidth="1100" Margin="24,0,30,30" VerticalAlignment="Top">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalFirst">
+        <Grid MaxWidth="1100" Margin="24,20,30,30" VerticalAlignment="Top">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="440"/>
                 <ColumnDefinition Width="24"/>

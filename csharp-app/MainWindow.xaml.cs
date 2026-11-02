@@ -29,9 +29,12 @@ public partial class MainWindow : Window
 
     private void OnStateChanged()
     {
+        bool maximized = WindowState == WindowState.Maximized;
         // A maximised window with a custom frame reaches past the screen edge by the resize border; pull it back in.
-        Frame.Margin = WindowState == WindowState.Maximized ? new Thickness(8) : new Thickness(0);
-        MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
+        Frame.Margin = maximized ? new Thickness(8) : new Thickness(0);
+        // Hide the outer border when maximised so content fills edge-to-edge.
+        Frame.BorderThickness = maximized ? new Thickness(0) : new Thickness(3);
+        MaximizeButton.Content = maximized ? "❐" : "□";
         UpdateGridActivity();
     }
 
