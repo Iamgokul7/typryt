@@ -61,7 +61,7 @@
                 <ContentControl Style="{StaticResource HardCard}" Margin="0,20,0,0" Padding="24,20">
                     <StackPanel>
                         <Grid>
-                            <TextBlock Text="CORRECTION LEVEL" Style="{StaticResource Cap}" VerticalAlignment="Baseline"/>
+                            <TextBlock Text="CORRECTION LEVEL" Style="{StaticResource Cap}" VerticalAlignment="Center"/>
                             <TextBlock x:Name="LevelName" Style="{StaticResource MonoText}" FontSize="20" FontWeight="ExtraBold" HorizontalAlignment="Right" Text="MEDIUM"/>
                         </Grid>
                         <ui:StopSlider x:Name="LevelSlider" Style="{StaticResource HardSlider}" Margin="0,14,0,0"

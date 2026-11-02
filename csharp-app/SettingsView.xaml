@@ -65,10 +65,10 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="60"/>
                             </Grid.ColumnDefinitions>
-                            <ui:StopSlider x:Name="ToastSlider" Style="{StaticResource HardSlider}" Minimum="1" Maximum="5" Margin="0,0,16,0"
-                                           AutomationProperties.Name="Toast duration in seconds" ValueChanged="ToastSlider_ValueChanged"/>
                             <TextBlock x:Name="ToastLabel" Grid.Column="1" Style="{StaticResource MonoText}" FontSize="18" FontWeight="ExtraBold"
                                        TextAlignment="Right" VerticalAlignment="Top" Margin="0,6,0,0" Text="3 s"/>
+                            <ui:StopSlider x:Name="ToastSlider" Style="{StaticResource HardSlider}" Minimum="1" Maximum="5" Margin="0,0,16,0"
+                                           AutomationProperties.Name="Toast duration in seconds" ValueChanged="ToastSlider_ValueChanged"/>
                         </Grid>
                         <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,2,0,0" Margin="0,2,0,0"/>
 
