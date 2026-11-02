@@ -34,9 +34,33 @@ public partial class SettingsView : UserControl
         ToastLabel.Text = $"{permissions.ToastSeconds} s";
         SelectCorner(permissions.ToastCorner);
         SelectBlock(permissions.UndoBlockHours);
-        ThemeBox.IsChecked = permissions.Theme == "light";
+        SyncAppearance();
         AppList.ItemsSource = permissions.Apps;
         _loading = false;
+
+        // The tray menu and Home change "Turn corrections on" too; keep the switch in step.
+        permissions.Changed += SyncMaster;
+        IsVisibleChanged += (_, _) => { if (IsVisible) SyncMaster(); };
+    }
+
+    private void SyncMaster()
+    {
+        if (_permissions is null) return;
+        bool was = _loading;
+        _loading = true;
+        MasterBox.IsChecked = _permissions.MasterEnabled;
+        _loading = was;
+    }
+
+    /// <summary>Shows the chosen theme and grid setting on their buttons (one of each pair is always selected).</summary>
+    private void SyncAppearance()
+    {
+        if (_permissions is null) return;
+        bool light = _permissions.Theme == "light";
+        ThemeDarkButton.IsChecked = !light;
+        ThemeBox.IsChecked = light;
+        GridOnButton.IsChecked = _permissions.GridBackgroundEnabled;
+        GridOffButton.IsChecked = !_permissions.GridBackgroundEnabled;
     }
 
     private void Master_Click(object sender, RoutedEventArgs e) => Change(p => p.MasterEnabled = MasterBox.IsChecked == true);
@@ -54,7 +78,13 @@ public partial class SettingsView : UserControl
 
     private void Learning_Click(object sender, RoutedEventArgs e) => Change(p => p.LearningEnabled = LearningBox.IsChecked == true);
 
-    private void Theme_Click(object sender, RoutedEventArgs e) => Change(p => p.Theme = ThemeBox.IsChecked == true ? "light" : "dark");
+    private void Theme_Click(object sender, RoutedEventArgs e) { Change(p => p.Theme = "light"); SyncAppearance(); }
+
+    private void ThemeDark_Click(object sender, RoutedEventArgs e) { Change(p => p.Theme = "dark"); SyncAppearance(); }
+
+    private void GridOn_Click(object sender, RoutedEventArgs e) { Change(p => p.GridBackgroundEnabled = true); SyncAppearance(); }
+
+    private void GridOff_Click(object sender, RoutedEventArgs e) { Change(p => p.GridBackgroundEnabled = false); SyncAppearance(); }
 
     private void App_Click(object sender, RoutedEventArgs e)
     {
