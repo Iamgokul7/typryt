@@ -1,10 +1,10 @@
-# Typryt
+# `T|` Typryt
 
-**Type it right.**
+**Type it right.** &nbsp;·&nbsp; Windows 11 &nbsp;·&nbsp; v1.0.2 &nbsp;·&nbsp; PolyForm Strict 1.0.0
 
 Typryt is autocorrect for the Windows 11 desktop, in the style of a phone keyboard. It runs in the notification area, watches what you type in the apps you allow, fixes typos as you finish each word, and lets you undo a correction with one key press. Everything runs on your own PC.
 
-Version 1.0.2 (release candidate). Licensed under the PolyForm Strict License 1.0.0 (see `LICENSE.txt`): you may use it for any noncommercial purpose, but not redistribute or change it.
+Licensed under the PolyForm Strict License 1.0.0 (see `LICENSE.txt`): you may use it for any noncommercial purpose, but not redistribute or change it.
 
 ![Home tab, dark theme](docs/screenshots/home-dark.png)
 ![Settings tab, light theme](docs/screenshots/settings-light.png)
