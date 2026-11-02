@@ -990,6 +990,7 @@ public partial class App : Application
         {
             _toast.DisplaySeconds = _permissions.ToastSeconds;
             _toast.Corner = _permissions.ToastCorner;
+            _toast.UndoKeyLabel = $"ALT+{_permissions.UndoLetter}";
             _toast.Show(original, corrected, RequestUndo);
         });
     }

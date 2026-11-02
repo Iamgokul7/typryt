@@ -13,6 +13,8 @@ public sealed class TrayIcon : IDisposable
     private readonly WinForms.NotifyIcon _icon;
     private readonly WinForms.ToolStripMenuItem _status;
     private readonly WinForms.ToolStripMenuItem _toggle;
+    private readonly Icon _onIcon = DrawIcon(on: true);
+    private readonly Icon _offIcon = DrawIcon(on: false);
 
     public event Action? OpenDashboardRequested;
     public event Action? OpenHistoryRequested;
@@ -50,7 +52,7 @@ public sealed class TrayIcon : IDisposable
 
         _icon = new WinForms.NotifyIcon
         {
-            Icon = DrawIcon(),
+            Icon = _onIcon,
             Text = "Typryt",
             ContextMenuStrip = menu,
             Visible = true,
@@ -64,6 +66,7 @@ public sealed class TrayIcon : IDisposable
     public void SetOn(bool isOn)
     {
         _icon.Text = "Typryt";
+        _icon.Icon = isOn ? _onIcon : _offIcon;
         _status.Text = isOn ? "● Typryt is ON" : "○ Typryt is OFF";
         _toggle.Text = isOn ? "Disable" : "Enable";
     }
@@ -72,6 +75,7 @@ public sealed class TrayIcon : IDisposable
     public void SetPaused(string reason)
     {
         string text = $"Typryt paused: {reason}";
+        _icon.Icon = _offIcon;
         _status.Text = "○ " + text;
         _toggle.Text = "Enable";
         _icon.Text = text.Length > 63 ? text[..63] : text;
@@ -83,19 +87,22 @@ public sealed class TrayIcon : IDisposable
         _icon.Dispose();
     }
 
-    /// <summary>"T" in white with an orange bar after it, the logo's cursor.</summary>
-    private static Icon DrawIcon()
+    /// <summary>The app mark: an accent square (grey when off) with a black border and a black "T|".</summary>
+    private static Icon DrawIcon(bool on)
     {
         using var bitmap = new Bitmap(32, 32);
         using (var graphics = Graphics.FromImage(bitmap))
         {
-            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.SmoothingMode = SmoothingMode.None;
             graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
             graphics.Clear(Color.Transparent);
-            using var font = new Font("Segoe UI Semibold", 17, FontStyle.Regular, GraphicsUnit.Pixel);
-            graphics.DrawString("T", font, Brushes.White, new PointF(2, 3));
-            using var bar = new SolidBrush(Color.FromArgb(0xE8, 0x62, 0x0A));
-            graphics.FillRectangle(bar, 22, 6, 3, 20);
+            using var fill = new SolidBrush(on ? Color.FromArgb(0xDE, 0x5C, 0x0A) : Color.FromArgb(0x6E, 0x6E, 0x6E));
+            graphics.FillRectangle(fill, 1, 1, 30, 30);
+            using var border = new Pen(Color.Black, 3) { Alignment = PenAlignment.Inset };
+            graphics.DrawRectangle(border, 1, 1, 30, 30);
+            using var font = new Font("Consolas", 15, FontStyle.Bold, GraphicsUnit.Pixel);
+            using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            graphics.DrawString("T|", font, Brushes.Black, new RectangleF(1, 2, 30, 28), format);
         }
         return Icon.FromHandle(bitmap.GetHicon());
     }
