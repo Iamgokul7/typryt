@@ -62,9 +62,12 @@ public partial class DictionaryView : UserControl
     private void ShowRows()
     {
         var search = SearchBox.Text.Trim();
-        WordList.ItemsSource = _rows
+        var shown = _rows
             .Where(r => search.Length == 0 || r.Word.Contains(search, StringComparison.OrdinalIgnoreCase))
             .ToList();
+        WordList.ItemsSource = shown;
+        EmptyText.Visibility = shown.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyText.Text = _rows.Count == 0 ? "NO WORDS YET. TYPE ONE ON THE RIGHT AND PRESS ADD." : "NO WORDS MATCH YOUR SEARCH.";
         UpdateRemoveButton();
     }
 
@@ -75,7 +78,11 @@ public partial class DictionaryView : UserControl
     private void UpdateRemoveButton()
     {
         RemoveButton.IsEnabled = _engineReachable && WordList.SelectedItem is WordRow;
+        RemoveHint.Text = WordList.SelectedItem is WordRow selected ? $"Selected: {selected.Word}" : "Pick a word in the list first.";
     }
+
+    /// <summary>Add stays disabled while the box is empty.</summary>
+    private void NewWord_TextChanged(object sender, TextChangedEventArgs e) => AddButton.IsEnabled = NewWordBox.Text.Trim().Length > 0;
 
     private async void Add_Click(object sender, RoutedEventArgs e) => await AddWordAsync();
 
