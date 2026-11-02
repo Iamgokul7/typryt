@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typryt settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.root{position:relative;overflow:hidden;box-sizing:border-box;background:var(--bg);color:var(--ink);font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;border:3px solid var(--ink)}
+.root>*{position:relative;z-index:1}
+.root>.bgl{position:absolute;z-index:0;pointer-events:none}
+.bgf{inset:0;background-image:linear-gradient(var(--gridc) 1px,transparent 1px),linear-gradient(90deg,var(--gridc) 1px,transparent 1px);background-size:48px 48px;animation:drift 48s linear infinite}
+@keyframes drift{from{background-position:0 0}to{background-position:48px 48px}}
+@media (prefers-reduced-motion:reduce){.bgf{animation:none}}
+.mono,.btn,.cap,.wc,.selx{font-family:'Cascadia Mono',Consolas,'Courier New',monospace}
+.card{background:var(--panel);border:3px solid var(--ink);box-shadow:6px 6px 0 var(--shadow);box-sizing:border-box}
+.cap{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.cap i{display:inline-block;width:14px;height:14px;background:var(--accent);border:2px solid var(--ink);box-sizing:border-box}
+.btn{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:44px;padding:0 18px;background:var(--panel);color:var(--ink);border:3px solid var(--ink);box-shadow:4px 4px 0 var(--bs);font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;cursor:pointer;transition:transform 90ms ease-out,box-shadow 90ms ease-out,background-color 90ms}
+.btn:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--bs)}
+.btn:active{transform:translate(4px,4px);box-shadow:0 0 0 var(--bs)}
+.btn.on{background:var(--accent);color:#000}
+.btn:focus-visible,.swc:focus-visible,.selx:focus-visible,.wc:focus-visible{outline:3px dashed var(--focus);outline-offset:4px}
+.wc{width:52px;border:0;border-left:3px solid var(--ink);background:var(--panel);color:var(--ink);font-size:20px;font-weight:700;cursor:pointer;transition:background-color 90ms,transform 90ms}
+.wc:hover{background:var(--accent);color:#000}
+.wc:active{transform:translate(2px,2px)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:56px;border-bottom:2px solid var(--line);font-size:17px;font-weight:600;color:var(--ink);cursor:pointer}
+.row:last-child{border-bottom:0}
+.hint{font-size:14px;font-weight:400;color:var(--muted);margin-top:2px}
+.swc{-webkit-appearance:none;appearance:none;flex:none;position:relative;box-sizing:border-box;width:72px;height:36px;margin:0;background:var(--panel2);border:3px solid var(--ink);box-shadow:3px 3px 0 var(--bs);cursor:pointer;transition:background-color 160ms,transform 90ms,box-shadow 90ms}
+.swc::before{content:'';position:absolute;top:2px;left:2px;width:26px;height:26px;background:var(--ink);transition:transform 220ms cubic-bezier(.22,1,.36,1)}
+.swc::after{content:'OFF';position:absolute;right:6px;top:6px;font:700 11px 'Cascadia Mono',Consolas,monospace;color:var(--ink)}
+.swc:checked{background:var(--accent)}
+.swc:checked::before{transform:translateX(36px);background:#000}
+.swc:checked::after{content:'ON';left:8px;right:auto;color:#000}
+.swc:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--bs)}
+.swc:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--bs)}
+.selw{position:relative}
+.selw::after{content:'';position:absolute;right:14px;top:50%;margin-top:-4px;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid var(--ink);pointer-events:none}
+.selx{-webkit-appearance:none;appearance:none;display:block;width:100%;box-sizing:border-box;height:46px;padding:0 40px 0 14px;background:var(--panel);color:var(--ink);border:3px solid var(--ink);box-shadow:4px 4px 0 var(--bs);font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;cursor:pointer;transition:transform 90ms ease-out,box-shadow 90ms ease-out}
+.selx:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--bs)}
+.selx:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--bs)}
+.lvw{position:relative;flex:1;height:36px}
+.lvn{-webkit-appearance:none;appearance:none;position:absolute;left:0;top:0;width:100%;height:36px;margin:0;opacity:0;cursor:pointer;z-index:3}
+.lvn::-webkit-slider-runnable-track{height:36px;background:transparent}
+.lvn::-webkit-slider-thumb{-webkit-appearance:none;width:34px;height:36px;background:transparent}
+.lvn::-moz-range-track{height:36px;background:transparent}
+.lvn::-moz-range-thumb{width:34px;height:36px;border:0;background:transparent}
+.trk{position:absolute;left:0;right:0;top:10px;height:16px;box-sizing:border-box;background:var(--panel2);border:3px solid var(--ink)}
+.fil{position:absolute;left:3px;top:13px;height:10px;background:var(--accent);transition:width 300ms cubic-bezier(.22,1,.36,1)}
+.thb{position:absolute;top:1px;width:34px;height:34px;box-sizing:border-box;background:var(--accent);border:3px solid var(--ink);box-shadow:4px 4px 0 var(--bs);transition:left 300ms cubic-bezier(.22,1,.36,1),transform 90ms ease-out,box-shadow 90ms ease-out;z-index:2}
+.lvn:hover~.thb{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--bs)}
+.lvn:active~.thb{transform:translate(3px,3px);box-shadow:0 0 0 var(--bs)}
+.lvn:focus-visible~.thb{outline:3px dashed var(--focus);outline-offset:4px}
+</style>
+</helmet>
+<div class="root" style="width:1100px;height:1060px;{{ themeVars }}">
+
+<sc-if value="{{ showGrid }}" hint-placeholder-val="{{ true }}"><div class="bgl bgf"></div></sc-if>
+
+<div style="display:flex;align-items:stretch;height:52px;border-bottom:3px solid var(--ink);background:var(--panel)">
+<div style="display:flex;align-items:center;gap:12px;padding:0 16px;flex:1">
+<div class="mono" style="width:32px;height:32px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:var(--accent);color:#000;border:3px solid var(--ink);font-weight:800;font-size:15px">T|</div>
+<div class="mono" style="font-size:20px;font-weight:800;letter-spacing:.02em">Typryt<span style="color:var(--accent)">.</span></div>
+</div>
+<button class="wc" aria-label="Minimize">–</button>
+<button class="wc" aria-label="Maximize">□</button>
+<button class="wc" aria-label="Close">×</button>
+</div>
+
+<div style="display:flex;align-items:center;gap:14px;height:68px;padding:0 24px">
+<a class="btn" href="Main.dc.html">Home</a>
+<a class="btn on" href="Settings.dc.html" aria-current="page">Settings</a>
+<a class="btn" href="Dictionary.dc.html">Dictionary</a>
+</div>
+
+<div style="display:flex;gap:24px;padding:0 24px 24px;align-items:flex-start">
+
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:22px">
+
+<div class="card" style="padding:18px 24px 8px">
+<div class="cap" style="padding-bottom:12px;border-bottom:3px solid var(--ink)"><i></i>General</div>
+<sc-for list="{{ general }}" as="g" hint-placeholder-count="2">
+<label class="row"><span>{{ g.label }}</span><input class="swc" type="checkbox" checked="{{ g.checked }}" onChange="{{ g.flip }}"></label>
+</sc-for>
+</div>
+
+<div class="card" style="padding:18px 24px 8px">
+<div class="cap" style="padding-bottom:12px;border-bottom:3px solid var(--ink)"><i></i>Corrections</div>
+<sc-for list="{{ corrections }}" as="c" hint-placeholder-count="3">
+<label class="row"><span>{{ c.label }}</span><input class="swc" type="checkbox" checked="{{ c.checked }}" onChange="{{ c.flip }}"></label>
+</sc-for>
+</div>
+
+<div class="card" style="padding:18px 24px 24px">
+<div class="cap" style="padding-bottom:12px;border-bottom:3px solid var(--ink)"><i></i>Undo and toast</div>
+<div class="row" style="cursor:default">
+<div><div>Undo key</div><div class="hint">Press it right after a correction to undo it.</div></div>
+<div style="display:flex;align-items:center;gap:14px"><span class="mono" style="font-size:18px;font-weight:800">ALT + U</span><button class="btn">Change</button></div>
+</div>
+<div style="padding:14px 0;border-bottom:2px solid var(--line)">
+<div style="font-size:17px;font-weight:600;margin-bottom:8px">The toast stays on screen for</div>
+<div style="display:flex;align-items:center;gap:16px">
+<div class="lvw">
+<input class="lvn" type="range" min="1" max="5" step="1" value="{{ secs }}" onChange="{{ onSecs }}" aria-label="Toast duration in seconds">
+<div class="trk"></div>
+<div class="fil" style="width:calc(14px + (100% - 34px) * {{ secFrac }})"></div>
+<div class="thb" style="left:calc((100% - 34px) * {{ secFrac }})"></div>
+</div>
+<span class="mono" style="width:44px;text-align:right;font-size:18px;font-weight:800">{{ secsText }}</span>
+</div>
+</div>
+<div style="padding:14px 0;border-bottom:2px solid var(--line)">
+<div style="font-size:17px;font-weight:600;margin-bottom:10px">After an undo, keep the word uncorrected for</div>
+<div class="selw"><select class="selx" aria-label="Keep uncorrected for"><option>24 hours</option><option>1 hour</option><option>7 days</option></select></div>
+</div>
+<div style="padding:14px 0 0">
+<div style="font-size:17px;font-weight:600;margin-bottom:10px">Show the toast in this corner</div>
+<div class="selw"><select class="selx" aria-label="Toast corner"><option>Bottom right</option><option>Bottom left</option><option>Top right</option><option>Top left</option></select></div>
+</div>
+</div>
+
+</div>
+
+<div style="width:470px;display:flex;flex-direction:column;gap:22px">
+
+<div class="card" style="padding:18px 24px 24px">
+<div class="cap" style="padding-bottom:12px;border-bottom:3px solid var(--ink)"><i></i>Appearance</div>
+<div style="font-size:17px;font-weight:600;padding-top:16px">Theme</div>
+<div style="display:flex;gap:14px;padding-top:10px">
+<button class="btn {{ darkCls }}" aria-pressed="{{ darkPressed }}" onClick="{{ setDark }}" style="flex:1">Dark</button>
+<button class="btn {{ lightCls }}" aria-pressed="{{ lightPressed }}" onClick="{{ setLight }}" style="flex:1">Light</button>
+</div>
+<div style="font-size:17px;font-weight:600;padding-top:20px">Animated grid background</div>
+<div style="display:flex;gap:14px;padding-top:10px">
+<button class="btn {{ gridCls }}" aria-pressed="{{ gridPressed }}" onClick="{{ setGrid }}" style="flex:1;padding:0 8px">On</button>
+<button class="btn {{ offCls }}" aria-pressed="{{ offPressed }}" onClick="{{ setOff }}" style="flex:1;padding:0 8px">Off</button>
+</div>
+<div class="hint" style="padding-top:10px">It pauses when the window is hidden and follows Windows’ animation setting.</div>
+</div>
+
+<div class="card" style="padding:18px 24px 8px">
+<div class="cap" style="padding-bottom:12px;border-bottom:3px solid var(--ink)"><i></i>Apps where corrections run</div>
+<sc-for list="{{ apps }}" as="a" hint-placeholder-count="6">
+<label class="row"><span>{{ a.label }}</span><input class="swc" type="checkbox" checked="{{ a.checked }}" onChange="{{ a.flip }}"></label>
+</sc-for>
+</div>
+
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1100,"height":1060}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      theme: 'dark',
+      bg: 'grid',
+      secs: 5,
+      flags: {
+        on: true, startup: false,
+        abbr: true, caps: true, learn: true,
+        chrome: true, edge: true, firefox: true, notepad: true, wordpad: true, word: true
+      }
+    };
+  }
+  renderVals() {
+    const dark = this.state.theme === 'dark';
+    const bg = this.state.bg;
+    const f = this.state.flags;
+    const mk = (id, label) => ({
+      label: label,
+      checked: !!f[id],
+      flip: () => this.setState({ flags: Object.assign({}, this.state.flags, { [id]: !this.state.flags[id] }) })
+    });
+    const darkVars = '--bg:#121212;--panel:#1C1C1C;--panel2:#2A2A2A;--ink:#FFFFFF;--muted:#D4D4D4;--accent:#DE5C0A;--shadow:#3A3A3A;--bs:#DE5C0A;--line:#3F3F3F;--focus:#DE5C0A;--gridc:rgba(255,255,255,0.07);';
+    const lightVars = '--bg:#F4EEDF;--panel:#FFFFFF;--panel2:#E9E1CC;--ink:#000000;--muted:#333333;--accent:#DE5C0A;--shadow:#000000;--bs:#000000;--line:#CFC6AE;--focus:#000000;--gridc:rgba(0,0,0,0.09);';
+    return {
+      themeVars: dark ? darkVars : lightVars,
+      darkCls: dark ? 'on' : '',
+      lightCls: dark ? '' : 'on',
+      darkPressed: dark ? 'true' : 'false',
+      lightPressed: dark ? 'false' : 'true',
+      setDark: () => this.setState({ theme: 'dark' }),
+      setLight: () => this.setState({ theme: 'light' }),
+      showGrid: bg === 'grid',
+      gridCls: bg === 'grid' ? 'on' : '', offCls: bg === 'off' ? 'on' : '',
+      gridPressed: bg === 'grid' ? 'true' : 'false', offPressed: bg === 'off' ? 'true' : 'false',
+      setGrid: () => this.setState({ bg: 'grid' }),
+      setOff: () => this.setState({ bg: 'off' }),
+      secs: this.state.secs,
+      secFrac: ((this.state.secs - 1) / 4).toFixed(4),
+      secsText: this.state.secs + ' S',
+      onSecs: (e) => this.setState({ secs: Number(e.target.value) }),
+      general: [mk('on', 'Turn corrections on'), mk('startup', 'Start Typryt when Windows starts')],
+      corrections: [
+        mk('abbr', 'Expand abbreviations (brb, idk, asap)'),
+        mk('caps', 'Capitalize after a full stop, ! or ?'),
+        mk('learn', 'Learn my words and remember undone corrections')
+      ],
+      apps: [
+        mk('chrome', 'Google Chrome'), mk('edge', 'Microsoft Edge'), mk('firefox', 'Firefox'),
+        mk('notepad', 'Notepad'), mk('wordpad', 'WordPad'), mk('word', 'Microsoft Word')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

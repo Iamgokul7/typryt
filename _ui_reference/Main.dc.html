@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typryt home</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.root{position:relative;overflow:hidden;box-sizing:border-box;background:var(--bg);color:var(--ink);font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;border:3px solid var(--ink)}
+.root>*{position:relative;z-index:1}
+.root>.bgl{position:absolute;z-index:0;pointer-events:none}
+.bgf{inset:0;background-image:linear-gradient(var(--gridc) 1px,transparent 1px),linear-gradient(90deg,var(--gridc) 1px,transparent 1px);background-size:48px 48px;animation:drift 48s linear infinite}
+@keyframes drift{from{background-position:0 0}to{background-position:48px 48px}}
+@media (prefers-reduced-motion:reduce){.bgf{animation:none}}
+.mono,.btn,.lbl,.tag,.cap,.wc{font-family:'Cascadia Mono',Consolas,'Courier New',monospace}
+.card{background:var(--panel);border:3px solid var(--ink);box-shadow:6px 6px 0 var(--shadow);box-sizing:border-box}
+.cap{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.btn{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:44px;padding:0 18px;background:var(--panel);color:var(--ink);border:3px solid var(--ink);box-shadow:4px 4px 0 var(--bs);font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;cursor:pointer;transition:transform 90ms ease-out,box-shadow 90ms ease-out,background-color 90ms}
+.btn:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--bs)}
+.btn:active{transform:translate(4px,4px);box-shadow:0 0 0 var(--bs)}
+.btn.on{background:var(--accent);color:#000}
+.btn:focus-visible,.lbl:focus-visible,.wc:focus-visible{outline:3px dashed var(--focus);outline-offset:4px}
+.wc{width:52px;border:0;border-left:3px solid var(--ink);background:var(--panel);color:var(--ink);font-size:20px;font-weight:700;cursor:pointer;transition:background-color 90ms,transform 90ms}
+.wc:hover{background:var(--accent);color:#000}
+.wc:active{transform:translate(2px,2px)}
+.tag{display:inline-block;background:var(--accent);color:#000;border:2px solid var(--ink);padding:2px 8px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.lvw{position:relative;height:36px}
+.lvn{-webkit-appearance:none;appearance:none;position:absolute;left:0;top:0;width:100%;height:36px;margin:0;opacity:0;cursor:pointer;z-index:3}
+.lvn::-webkit-slider-runnable-track{height:36px;background:transparent}
+.lvn::-webkit-slider-thumb{-webkit-appearance:none;width:34px;height:36px;background:transparent}
+.lvn::-moz-range-track{height:36px;background:transparent}
+.lvn::-moz-range-thumb{width:34px;height:36px;border:0;background:transparent}
+.trk{position:absolute;left:0;right:0;top:10px;height:16px;box-sizing:border-box;background:var(--panel2);border:3px solid var(--ink)}
+.fil{position:absolute;left:3px;top:13px;height:10px;background:var(--accent);transition:width 300ms cubic-bezier(.22,1,.36,1)}
+.thb{position:absolute;top:1px;width:34px;height:34px;box-sizing:border-box;background:var(--accent);border:3px solid var(--ink);box-shadow:4px 4px 0 var(--bs);transition:left 300ms cubic-bezier(.22,1,.36,1),transform 90ms ease-out,box-shadow 90ms ease-out;z-index:2}
+.lvn:hover~.thb{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--bs)}
+.lvn:active~.thb{transform:translate(3px,3px);box-shadow:0 0 0 var(--bs)}
+.lvn:focus-visible~.thb{outline:3px dashed var(--focus);outline-offset:4px}
+.tk{position:absolute;top:38px;width:3px;height:10px;background:var(--ink)}
+.lbl{position:absolute;top:56px;transform:translateX(-50%);box-sizing:border-box;height:40px;padding:0 12px;background:var(--panel);color:var(--ink);border:3px solid var(--ink);font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;transition:transform 90ms ease-out,background-color 160ms}
+.lbl:hover{transform:translate(-50%,-2px)}
+.lbl:active{transform:translate(-50%,3px)}
+.lbl.on{background:var(--accent);color:#000}
+</style>
+</helmet>
+<div class="root" style="width:1100px;height:740px;{{ themeVars }}">
+
+<sc-if value="{{ showGrid }}" hint-placeholder-val="{{ true }}"><div class="bgl bgf"></div></sc-if>
+
+<div style="display:flex;align-items:stretch;height:52px;border-bottom:3px solid var(--ink);background:var(--panel)">
+<div style="display:flex;align-items:center;gap:12px;padding:0 16px;flex:1">
+<div class="mono" style="width:32px;height:32px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:var(--accent);color:#000;border:3px solid var(--ink);font-weight:800;font-size:15px">T|</div>
+<div class="mono" style="font-size:20px;font-weight:800;letter-spacing:.02em">Typryt<span style="color:var(--accent)">.</span></div>
+</div>
+<button class="wc" aria-label="Minimize">–</button>
+<button class="wc" aria-label="Maximize">□</button>
+<button class="wc" aria-label="Close">×</button>
+</div>
+
+<div style="display:flex;align-items:center;gap:14px;height:68px;padding:0 24px">
+<a class="btn on" href="Main.dc.html" aria-current="page">Home</a>
+<a class="btn" href="Settings.dc.html">Settings</a>
+<a class="btn" href="Dictionary.dc.html">Dictionary</a>
+<div style="flex:1"></div>
+<button class="btn" onClick="{{ cycleBg }}" aria-label="Turn the animated grid on or off">{{ bgBtn }}</button>
+<button class="btn" onClick="{{ flipTheme }}" aria-label="Switch between dark and light theme">{{ themeBtn }}</button>
+</div>
+
+<div style="display:flex;gap:24px;padding:0 24px 24px;align-items:flex-start">
+
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:20px">
+
+<div class="card" style="height:104px;display:flex;align-items:center;justify-content:space-between;padding:0 24px">
+<div>
+<div class="mono" style="font-size:26px;font-weight:800;letter-spacing:.04em">{{ statusText }}</div>
+<div style="font-size:15px;margin-top:6px;color:var(--muted)">{{ statusSub }}</div>
+</div>
+<button class="btn sw {{ swOn }}" aria-pressed="{{ pressed }}" aria-label="Turn corrections on or off" onClick="{{ toggle }}" style="min-width:104px;height:52px;font-size:18px">{{ onText }}</button>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;height:120px">
+<div class="card" style="background:var(--accent);color:#000;padding:16px 20px;display:flex;flex-direction:column;justify-content:space-between">
+<div class="cap">Words fixed</div>
+<div class="mono" style="font-size:52px;font-weight:800;line-height:1">48</div>
+</div>
+<div class="card" style="padding:16px 20px;display:flex;flex-direction:column;justify-content:space-between">
+<div class="cap">Today</div>
+<div class="mono" style="font-size:52px;font-weight:800;line-height:1">0</div>
+</div>
+<div class="card" style="padding:16px 20px;display:flex;flex-direction:column;justify-content:space-between">
+<div class="cap">Undone</div>
+<div class="mono" style="font-size:52px;font-weight:800;line-height:1">19</div>
+</div>
+</div>
+
+<div class="card" style="height:224px;padding:20px 24px">
+<div style="display:flex;justify-content:space-between;align-items:baseline">
+<div class="cap">Correction level</div>
+<div class="mono" style="font-size:20px;font-weight:800">{{ levelName }}</div>
+</div>
+<div style="position:relative;height:96px;margin-top:14px">
+<div class="lvw">
+<input class="lvn" type="range" min="0" max="3" step="1" value="{{ level }}" onChange="{{ onSlide }}" aria-label="Correction level" aria-valuetext="{{ levelName }}">
+<div class="trk"></div>
+<div class="fil" style="width:calc(14px + (100% - 34px) * {{ frac }})"></div>
+<div class="thb" style="left:calc((100% - 34px) * {{ frac }})"></div>
+</div>
+<div class="tk" style="left:calc(17px - 1.5px)"></div>
+<div class="tk" style="left:calc(17px + (100% - 34px) / 3 - 1.5px)"></div>
+<div class="tk" style="left:calc(17px + (100% - 34px) * 2 / 3 - 1.5px)"></div>
+<div class="tk" style="left:calc(100% - 17px - 1.5px)"></div>
+<button class="lbl {{ c0 }}" style="left:17px" onClick="{{ set0 }}">Low</button>
+<button class="lbl {{ c1 }}" style="left:calc(17px + (100% - 34px) / 3)" onClick="{{ set1 }}">Medium</button>
+<button class="lbl {{ c2 }}" style="left:calc(17px + (100% - 34px) * 2 / 3)" onClick="{{ set2 }}">High</button>
+<button class="lbl {{ c3 }}" style="left:calc(100% - 17px)" onClick="{{ set3 }}">Extreme</button>
+</div>
+<div style="font-size:15px;line-height:1.4;color:var(--muted);margin-top:12px">{{ desc }}</div>
+</div>
+
+</div>
+
+<div class="card" style="width:380px;height:488px;padding:20px 22px;display:flex;flex-direction:column">
+<div class="cap" style="padding-bottom:14px;border-bottom:3px solid var(--ink)">Recent corrections</div>
+<div style="flex:1;overflow:hidden">
+<sc-for list="{{ rows }}" as="row" hint-placeholder-count="6">
+<div style="display:flex;align-items:center;gap:10px;min-height:62px;border-bottom:2px solid var(--line)">
+<div style="flex:1;min-width:0">
+<div class="mono" style="font-size:16px"><span style="color:var(--muted);text-decoration:line-through">{{ row.from }}</span> → <strong>{{ row.to }}</strong></div>
+<div class="mono" style="font-size:12px;color:var(--muted);margin-top:4px">{{ row.when }}</div>
+</div>
+<sc-if value="{{ row.undone }}" hint-placeholder-val="{{ true }}"><span class="tag">Undone</span></sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+
+</div>
+
+<div class="card" style="position:absolute;right:28px;bottom:20px;display:flex;align-items:center;gap:14px;padding:10px 12px 10px 18px;box-shadow:6px 6px 0 var(--bs)">
+<div class="mono" style="font-size:17px;font-weight:700">dont → don’t</div>
+<div class="mono" style="font-size:12px;color:var(--muted)">ALT+U</div>
+<button class="btn on" style="height:40px">Undo</button>
+<button class="btn" aria-label="Dismiss" style="width:40px;height:40px;padding:0;font-size:20px">×</button>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1100,"height":740}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { level: 1, on: true, theme: 'dark', bg: 'grid' };
+  }
+  renderVals() {
+    const names = ['LOW', 'MEDIUM', 'HIGH', 'EXTREME'];
+    const descs = [
+      'Fixes only what it is sure about: slang, apostrophes and obvious typos.',
+      'The default. Fixes clear mistakes and leaves anything it is unsure about.',
+      'Fixes more, including less obvious typos. Wrong guesses become more likely.',
+      'Fixes everything it can. It will sometimes change words you meant.'
+    ];
+    const l = this.state.level;
+    const on = this.state.on;
+    const dark = this.state.theme === 'dark';
+    const bg = this.state.bg;
+    const setL = (i) => () => this.setState({ level: i });
+    const darkVars = '--bg:#121212;--panel:#1C1C1C;--panel2:#2A2A2A;--ink:#FFFFFF;--muted:#D4D4D4;--accent:#DE5C0A;--shadow:#3A3A3A;--bs:#DE5C0A;--line:#3F3F3F;--focus:#DE5C0A;--gridc:rgba(255,255,255,0.07);';
+    const lightVars = '--bg:#F4EEDF;--panel:#FFFFFF;--panel2:#E9E1CC;--ink:#000000;--muted:#333333;--accent:#DE5C0A;--shadow:#000000;--bs:#000000;--line:#CFC6AE;--focus:#000000;--gridc:rgba(0,0,0,0.09);';
+    const nextBg = { grid: 'off', off: 'grid' };
+    return {
+      themeVars: dark ? darkVars : lightVars,
+      themeBtn: dark ? 'Light theme' : 'Dark theme',
+      flipTheme: () => this.setState({ theme: dark ? 'light' : 'dark' }),
+      showGrid: bg === 'grid',
+      bgBtn: 'Grid: ' + (bg === 'grid' ? 'on' : 'off'),
+      cycleBg: () => this.setState({ bg: nextBg[bg] }),
+      level: l,
+      frac: (l / 3).toFixed(4),
+      levelName: names[l],
+      desc: descs[l],
+      onSlide: (e) => this.setState({ level: Number(e.target.value) }),
+      set0: setL(0), set1: setL(1), set2: setL(2), set3: setL(3),
+      c0: l === 0 ? 'on' : '', c1: l === 1 ? 'on' : '', c2: l === 2 ? 'on' : '', c3: l === 3 ? 'on' : '',
+      statusText: on ? 'Typryt is on' : 'Typryt is off',
+      statusSub: on ? 'Fixes happen as you type, in the apps you allowed.' : 'Nothing is corrected until you turn it back on.',
+      swOn: on ? 'on' : 'off',
+      pressed: on ? 'true' : 'false',
+      onText: on ? 'ON' : 'OFF',
+      toggle: () => this.setState({ on: !on }),
+      rows: [
+        { from: 'cant', to: 'can’t', when: '29 OCT 10:37', undone: true },
+        { from: 'teh', to: 'the', when: '29 OCT 10:37', undone: false },
+        { from: 'teh', to: 'the', when: '29 OCT 10:37', undone: true },
+        { from: 'dont', to: 'don’t', when: '29 OCT 10:36', undone: false },
+        { from: 'troubble', to: 'trouble', when: '29 OCT 10:36', undone: false },
+        { from: 'dont', to: 'don’t', when: '29 OCT 10:36', undone: true }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

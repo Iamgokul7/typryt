@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typryt dictionary</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.root{position:relative;overflow:hidden;box-sizing:border-box;background:var(--bg);color:var(--ink);font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;border:3px solid var(--ink)}
+.root>*{position:relative;z-index:1}
+.root>.bgl{position:absolute;z-index:0;pointer-events:none}
+.bgf{inset:0;background-image:linear-gradient(var(--gridc) 1px,transparent 1px),linear-gradient(90deg,var(--gridc) 1px,transparent 1px);background-size:48px 48px;animation:drift 48s linear infinite}
+@keyframes drift{from{background-position:0 0}to{background-position:48px 48px}}
+@media (prefers-reduced-motion:reduce){.bgf{animation:none}}
+.mono,.btn,.cap,.wc,.inp,.wrow{font-family:'Cascadia Mono',Consolas,'Courier New',monospace}
+.card{background:var(--panel);border:3px solid var(--ink);box-shadow:6px 6px 0 var(--shadow);box-sizing:border-box}
+.cap{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.cap i{display:inline-block;width:14px;height:14px;background:var(--accent);border:2px solid var(--ink);box-sizing:border-box}
+.btn{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:44px;padding:0 18px;background:var(--panel);color:var(--ink);border:3px solid var(--ink);box-shadow:4px 4px 0 var(--bs);font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;cursor:pointer;transition:transform 90ms ease-out,box-shadow 90ms ease-out,background-color 90ms}
+.btn:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--bs)}
+.btn:active{transform:translate(4px,4px);box-shadow:0 0 0 var(--bs)}
+.btn.on{background:var(--accent);color:#000}
+.btn:disabled{background:var(--panel2);color:var(--muted);border-style:dashed;box-shadow:none;cursor:not-allowed;transform:none}
+.btn:focus-visible,.wc:focus-visible,.inp:focus-visible{outline:3px dashed var(--focus);outline-offset:4px}
+.wc{width:52px;border:0;border-left:3px solid var(--ink);background:var(--panel);color:var(--ink);font-size:20px;font-weight:700;cursor:pointer;transition:background-color 90ms,transform 90ms}
+.wc:hover{background:var(--accent);color:#000}
+.wc:active{transform:translate(2px,2px)}
+.inp{display:block;box-sizing:border-box;width:100%;height:52px;padding:0 14px;background:var(--panel);color:var(--ink);border:3px solid var(--ink);box-shadow:inset 4px 4px 0 var(--panel2);font-size:17px;font-weight:600}
+.inp::placeholder{color:var(--muted);opacity:1}
+.hint{font-size:15px;color:var(--muted);line-height:1.4}
+.wrow{display:flex;align-items:center;width:100%;box-sizing:border-box;min-height:52px;padding:0 20px;background:transparent;color:var(--ink);border:0;border-bottom:2px solid var(--line);font-size:17px;font-weight:600;text-align:left;cursor:pointer;transition:background-color 120ms,transform 90ms}
+.wrow:hover{background:var(--panel2)}
+.wrow.on{background:var(--accent);color:#000}
+.wrow:active{transform:translate(2px,2px)}
+.wrow:focus-visible{outline:3px dashed var(--focus);outline-offset:-6px}
+</style>
+</helmet>
+<div class="root" style="width:1100px;height:740px;{{ themeVars }}">
+
+<sc-if value="{{ showGrid }}" hint-placeholder-val="{{ true }}"><div class="bgl bgf"></div></sc-if>
+
+<div style="display:flex;align-items:stretch;height:52px;border-bottom:3px solid var(--ink);background:var(--panel)">
+<div style="display:flex;align-items:center;gap:12px;padding:0 16px;flex:1">
+<div class="mono" style="width:32px;height:32px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:var(--accent);color:#000;border:3px solid var(--ink);font-weight:800;font-size:15px">T|</div>
+<div class="mono" style="font-size:20px;font-weight:800;letter-spacing:.02em">Typryt<span style="color:var(--accent)">.</span></div>
+</div>
+<button class="wc" aria-label="Minimize">–</button>
+<button class="wc" aria-label="Maximize">□</button>
+<button class="wc" aria-label="Close">×</button>
+</div>
+
+<div style="display:flex;align-items:center;gap:14px;height:68px;padding:0 24px">
+<a class="btn" href="Main.dc.html">Home</a>
+<a class="btn" href="Settings.dc.html">Settings</a>
+<a class="btn on" href="Dictionary.dc.html" aria-current="page">Dictionary</a>
+<div style="flex:1"></div>
+<button class="btn" onClick="{{ cycleBg }}" aria-label="Turn the animated grid on or off">{{ bgBtn }}</button>
+<button class="btn" onClick="{{ flipTheme }}" aria-label="Switch between dark and light theme">{{ themeBtn }}</button>
+</div>
+
+<div style="display:flex;gap:24px;padding:0 24px 24px;align-items:flex-start">
+
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:20px">
+
+<div class="card" style="padding:18px 24px 22px">
+<div class="cap" style="padding-bottom:12px;border-bottom:3px solid var(--ink)"><i></i>Search</div>
+<div style="padding-top:16px"><input class="inp" type="text" placeholder="Type to filter your words" value="{{ query }}" onChange="{{ onQuery }}" aria-label="Search your words"></div>
+</div>
+
+<div class="card" style="height:360px;display:flex;flex-direction:column">
+<div class="cap" style="padding:14px 20px;border-bottom:3px solid var(--ink)"><i></i>Your words</div>
+<div style="flex:1;overflow:auto">
+<sc-for list="{{ rows }}" as="w" hint-placeholder-count="4">
+<button class="wrow {{ w.cls }}" aria-pressed="{{ w.pressed }}" onClick="{{ w.pick }}"><span>{{ w.word }}</span></button>
+</sc-for>
+<sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}"><div class="mono" style="padding:32px 20px;font-size:15px;line-height:1.5">{{ emptyText }}</div></sc-if>
+</div>
+</div>
+
+<div class="mono" style="font-size:14px;font-weight:700">{{ countText }}</div>
+
+</div>
+
+<div style="width:380px;display:flex;flex-direction:column;gap:20px">
+
+<div class="card" style="padding:18px 24px 24px">
+<div class="cap" style="padding-bottom:12px;border-bottom:3px solid var(--ink)"><i></i>Add a word</div>
+<div style="padding-top:16px;display:flex;flex-direction:column;gap:16px">
+<input class="inp" type="text" placeholder="A word Typryt should leave alone" value="{{ draft }}" onChange="{{ onDraft }}" aria-label="Word to add">
+<button class="btn on" disabled="{{ addOff }}" onClick="{{ add }}" style="height:52px;font-size:16px">Add</button>
+</div>
+</div>
+
+<div class="card" style="padding:18px 24px 24px">
+<div class="cap" style="padding-bottom:12px;border-bottom:3px solid var(--ink)"><i></i>Remove</div>
+<div style="padding-top:16px;display:flex;flex-direction:column;gap:16px">
+<div class="hint">{{ removeHint }}</div>
+<button class="btn" disabled="{{ noSel }}" onClick="{{ remove }}" style="height:52px;font-size:14px">Remove selected word</button>
+</div>
+</div>
+
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1100,"height":740}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { theme: 'dark', bg: 'grid', words: ['Gokulify', 'Typryt', 'Priya', 'Chennai'], sel: null, query: '', draft: '' };
+  }
+  renderVals() {
+    const s = this.state;
+    const dark = s.theme === 'dark';
+    const bg = s.bg;
+    const darkVars = '--bg:#121212;--panel:#1C1C1C;--panel2:#2A2A2A;--ink:#FFFFFF;--muted:#D4D4D4;--accent:#DE5C0A;--shadow:#3A3A3A;--bs:#DE5C0A;--line:#3F3F3F;--focus:#DE5C0A;--gridc:rgba(255,255,255,0.07);';
+    const lightVars = '--bg:#F4EEDF;--panel:#FFFFFF;--panel2:#E9E1CC;--ink:#000000;--muted:#333333;--accent:#DE5C0A;--shadow:#000000;--bs:#000000;--line:#CFC6AE;--focus:#000000;--gridc:rgba(0,0,0,0.09);';
+    const nextBg = { grid: 'off', off: 'grid' };
+    const q = s.query.trim().toLowerCase();
+    const shown = s.words.filter((w) => w.toLowerCase().indexOf(q) !== -1);
+    const n = s.words.length;
+    return {
+      themeVars: dark ? darkVars : lightVars,
+      themeBtn: dark ? 'Light theme' : 'Dark theme',
+      flipTheme: () => this.setState({ theme: dark ? 'light' : 'dark' }),
+      showGrid: bg === 'grid',
+      bgBtn: 'Grid: ' + (bg === 'grid' ? 'on' : 'off'),
+      cycleBg: () => this.setState({ bg: nextBg[bg] }),
+      query: s.query,
+      draft: s.draft,
+      onQuery: (e) => this.setState({ query: e.target.value }),
+      onDraft: (e) => this.setState({ draft: e.target.value }),
+      rows: shown.map((w) => ({
+        word: w,
+        cls: s.sel === w ? 'on' : '',
+        pressed: s.sel === w ? 'true' : 'false',
+        pick: () => this.setState({ sel: s.sel === w ? null : w })
+      })),
+      empty: shown.length === 0,
+      emptyText: n === 0 ? 'NO WORDS YET. TYPE ONE ON THE RIGHT AND PRESS ADD.' : 'NO WORDS MATCH YOUR SEARCH.',
+      countText: n + (n === 1 ? ' personal word. ' : ' personal words. ') + '0 words you undid are never corrected.',
+      addOff: s.draft.trim() === '',
+      add: () => {
+        const d = this.state.draft.trim();
+        if (d === '' || this.state.words.indexOf(d) !== -1) { this.setState({ draft: '' }); return; }
+        this.setState({ words: [d].concat(this.state.words), draft: '' });
+      },
+      noSel: s.sel === null,
+      removeHint: s.sel === null ? 'Pick a word in the list first.' : 'Selected: ' + s.sel,
+      remove: () => this.setState({ words: this.state.words.filter((w) => w !== this.state.sel), sel: null })
+    };
+  }
+}
+</script>
+</body>
+</html>
