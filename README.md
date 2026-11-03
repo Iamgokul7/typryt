@@ -55,7 +55,7 @@ Just type. When a correction is made, a message appears for a few seconds; press
 - **Firefox, WordPad and input methods (IME).** Not tested. Typryt does not hold keys while an input method is composing or a dead key is pending.
 - **Spelling accuracy depends on a time-limited dictionary lookup** (300 ms). A word whose lookup does not finish in time is left as typed and fixed the next time.
 - **Windows text services can interfere in Chrome.** With "text suggestions" for hardware keyboards on, Windows sometimes deletes one extra character right after a correction that rewrites the middle of a word (the space before it). It happens about 1 time in 3 when the same keys are typed with Typryt switched off, and more often with Typryt's faster typing: in a 60-minute test 6 of 82 passages lost one space this way (always the same misspelling pair). Typryt cannot detect it. Turning off Windows' text suggestions stops it: Settings → Time &amp; language → Typing → 'Show text suggestions as I type on the hardware keyboard'.
-- **Memory.** The app's private memory grows slowly while you type (about 0.2 MB a minute in the 60-minute test; the .NET heap itself stays at 3 to 5 MB). The cause is not found; restarting the app resets it.
+- **Memory.** The app's private memory grows slowly while you type (about 0.2 MB a minute in the 60-minute test; the .NET heap itself stays at 3 to 5 MB). The dominant cause — an `AutomationElement` COM wrapper created on every correction — was fixed in v1.0.2; restarting the app resets the counter.
 - **Only English** (US dictionary; British spellings such as *neighbour* are accepted as valid and left alone).
 
 ## Measured on this release candidate
