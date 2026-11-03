@@ -56,14 +56,15 @@ internal static class FocusGuard
     /// was typed, and the control that has focus now is not a password field. False when that cannot be
     /// found out in time.
     /// </summary>
-    public static async Task<bool> IsSafeAsync(int generation)
+    public static Task<bool> IsSafeAsync(int generation)
     {
-        if (TestMode.DisableFocusGuard) return generation == Generation;
-        if (generation != Generation) return false;
-
-        var read = Task.Run(() => IsPasswordOrUnknown(FocusedElementOrNull()));
-        if (await Task.WhenAny(read, Task.Delay(CheckTimeoutMilliseconds)) != read) return false;
-        return !await read && generation == Generation;
+        if (TestMode.DisableFocusGuard) return Task.FromResult(generation == Generation);
+        if (generation != Generation) return Task.FromResult(false);
+        // Use the event-cached _blocked value rather than querying AutomationElement.FocusedElement
+        // directly. The direct query created one COM wrapper per correction and was the dominant
+        // source of unmanaged private-bytes growth. Focus moves increment _generation, so the
+        // generation check still catches focus changes that race the correction.
+        return Task.FromResult(!_blocked && generation == Generation);
     }
 
     private static void OnFocusChanged(object sender, AutomationFocusChangedEventArgs e) => Update(sender as AutomationElement);
