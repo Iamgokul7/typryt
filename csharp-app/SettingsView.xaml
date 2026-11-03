@@ -127,6 +127,16 @@
                         </ItemsControl>
                     </StackPanel>
                 </ContentControl>
+
+                <ContentControl Style="{StaticResource HardCard}" Margin="0,22,0,0" Padding="24,18,24,18">
+                    <StackPanel>
+                        <Border BorderBrush="{DynamicResource TextPrimaryBrush}" BorderThickness="0,0,0,3" Padding="0,0,0,12">
+                            <TextBlock Text="WINDOWS COMPATIBILITY" Style="{StaticResource Cap}"/>
+                        </Border>
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,12,0,0" TextWrapping="Wrap"
+                                   Text="Windows' text suggestions can delete a space right after a correction in Chrome (roughly 1 in 3 with the same misspelling). To stop it: Settings → Time &amp; language → Typing → turn off 'Show text suggestions as I type on the hardware keyboard'."/>
+                    </StackPanel>
+                </ContentControl>
             </StackPanel>
         </Grid>
     </ScrollViewer>
