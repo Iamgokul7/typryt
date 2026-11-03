@@ -3,8 +3,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Foreground="{DynamicResource TextPrimaryBrush}"
              FontFamily="{StaticResource SansFont}" FontSize="14">
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalFirst">
-        <Grid MaxWidth="1100" Margin="24,20,30,30" VerticalAlignment="Top">
+    <ScrollViewer x:Name="DictionaryScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalFirst">
+        <Border HorizontalAlignment="Center" VerticalAlignment="Top" MaxWidth="1100"
+                Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
+        <Grid Margin="24,20,30,30">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="380"/>
                 <ColumnDefinition Width="24"/>
@@ -90,5 +92,6 @@
                 </ContentControl>
             </StackPanel>
         </Grid>
+        </Border>
     </ScrollViewer>
 </UserControl>
