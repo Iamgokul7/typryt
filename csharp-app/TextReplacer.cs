@@ -142,6 +142,12 @@ public static class TextReplacer
         // A word is corrected before its delimiter is delivered, and a delimiter such as ! or ? is typed with Shift, so
         // Shift is usually still down. It is released for the correction and pressed again afterwards, so the delimiter
         // reaches the app with its Shift. Ctrl, Alt and Win are never worked around.
+        //
+        // Whether Shift is down, and whether it is still down later when it must be restored, is read fresh each time
+        // (KeyboardHook.ShiftPhysicallyDown, live GetAsyncKeyState) rather than taken once from a snapshot at hold-start:
+        // real time passes between here and the restore below (reading the app's text, settling), during which any
+        // other source of Shift presses can act independently, so a stale snapshot can no longer be trusted by the
+        // time it is used.
         bool shiftReleased = false;
         if (shiftAllowed)
         {
@@ -150,7 +156,7 @@ public static class TextReplacer
                 Log.Write("replace", "cancelled: a modifier key is down; the text stays as typed");
                 return ReplaceResult.TextChanged;
             }
-            if (KeyboardHook.ShiftDownForApp)
+            if (KeyboardHook.ShiftPhysicallyDown)
             {
                 SendRawKey(VK_SHIFT, ShiftScanCode, up: true, extended: false);
                 shiftReleased = true;
@@ -168,7 +174,10 @@ public static class TextReplacer
         // so the batch gets a moment to land first: without it the last character of a correction was sometimes lost.
         if (batch && sent) Thread.Sleep(BatchSettleMs);
         // Pressed again even if the user has let go meanwhile: the release is among the held keys and follows the delimiter.
-        if (shiftReleased) SendRawKey(VK_SHIFT, ShiftScanCode, up: false, extended: false);
+        // Only when Shift is not ALREADY down again: something else may have pressed it in the meantime (another input
+        // source, independently of this correction), and in that case it needs no press from here - adding one anyway
+        // would leave a press with no matching release once that other source's own release arrives, the stuck-Shift bug.
+        if (shiftReleased && !KeyboardHook.ShiftPhysicallyDown) SendRawKey(VK_SHIFT, ShiftScanCode, up: false, extended: false);
         if (!sent) return ReplaceResult.Failed;
 
         Log.Write("replace", $"replaced {expectedBefore.Length} characters with {newText.Length}: {CountElements(expectedBefore, shared)} Backspaces and {newText.Length - shared} characters sent");
