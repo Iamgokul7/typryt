@@ -270,10 +270,6 @@ internal sealed class KeyboardHook : IDisposable
                     {
                         KeyInput? input = isDown && !IsModifierKey(vk) ? Translate(info, heldState: true) : null;
                         Held.Enqueue(new HeldKey((ushort)vk, (ushort)info.scanCode, isDown, (info.flags & LLKHF_EXTENDED) != 0, input));
-                        if (InputMarks.TestInput)
-                        {
-                            Log.Write("shift_diag", $"queued vk={vk} {(isDown ? "down" : "up")} modifier={IsModifierKey(vk)}");
-                        }
                         return (IntPtr)1;
                     }
                 }
@@ -413,7 +409,6 @@ internal sealed class KeyboardHook : IDisposable
             Holding = true;
             _holdStartedByThisKey = true;
             HoldTimer.Change(HoldTickMilliseconds, HoldTickMilliseconds);
-            if (InputMarks.TestInput) Log.Write("shift_diag", $"hold opened (BeginHold) token={token}");
             return token;
         }
     }
@@ -460,7 +455,6 @@ internal sealed class KeyboardHook : IDisposable
         }
         HoldTimer.Change(Timeout.Infinite, Timeout.Infinite);
         if (earlyReason is not null) Log.Write("hold", $"released early ({earlyReason}) after {held:0} ms; the text stays as typed");
-        if (InputMarks.TestInput) Log.Write("shift_diag", $"hold ending (EndHold) token={token}, replaying queue");
         ReplayHeldKeys();
         return held;
     }
@@ -520,7 +514,6 @@ internal sealed class KeyboardHook : IDisposable
             Holding = true;
             HoldTimer.Change(HoldTickMilliseconds, HoldTickMilliseconds);
         }
-        if (InputMarks.TestInput) Log.Write("shift_diag", $"hold opened (HoldKeysWhile) token={token}");
         try
         {
             return action();
@@ -531,78 +524,26 @@ internal sealed class KeyboardHook : IDisposable
         }
     }
 
-    // How long a replayed modifier-down may wait, with the hold kept open, for its matching up to arrive
-    // before the hold is allowed to end anyway. See ReplayHeldKeys for why this exists.
-    private const int UnmatchedModifierGraceMilliseconds = 200;
-
-    /// <summary>
-    /// Sends every held key again, in the order it was queued. A capital letter is four separate low-level
-    /// events (modifier-down, letter-down, letter-up, modifier-up); if the hold ends the instant the queue is
-    /// momentarily empty - right between a replayed modifier-down and its still-in-flight matching up - that up
-    /// gets delivered LIVE (Holding is already false) while the down is still working its way out through this
-    /// delayed replay, and the two can reach the target app out of order or not at all: a modifier that looks
-    /// down with no up ever following it, i.e. a stuck Shift. So the hold is kept open - not ended just because
-    /// the queue is briefly empty - for as long as a replayed modifier-down has not yet been followed by its own
-    /// matching up. Holding stays true means the hook keeps queuing new real keys (including that up) instead of
-    /// letting them bypass the queue, so the up is captured and replayed, in order, right behind everything already
-    /// queued ahead of it - nothing is skipped or reordered to achieve this; only ending the hold is delayed. A
-    /// short grace period bounds the wait in case the up never arrives (held across unrelated corrections), after
-    /// which the hold ends anyway, matching the one case this cannot fix generically: a modifier held down past
-    /// the correction, by design (GetAsyncKeyState is deliberately never consulted here; only the queue is).
-    /// </summary>
     private static void ReplayHeldKeys()
     {
-        var unmatchedModifierDown = new HashSet<int>();
-        long blockedSince = 0;
-
         while (true)
         {
             while (Held.TryDequeue(out HeldKey held))
             {
-                if (InputMarks.TestInput)
-                {
-                    bool hasPartner = held.IsDown
-                        ? unmatchedModifierDown.Contains(held.Vk)
-                        : !unmatchedModifierDown.Contains(held.Vk);
-                    Log.Write("shift_diag", $"replay vk={held.Vk} {(held.IsDown ? "down" : "up")} modifier={IsModifierKey(held.Vk)} partnerAlreadyTracked={hasPartner}");
-                }
                 TextReplacer.SendRawKey(held.Vk, held.Scan, up: !held.IsDown, extended: held.Extended);
                 if (held.IsDown && held.Input is { } input) _current?.KeyPressed?.Invoke(input);
-                if (IsModifierKey(held.Vk))
-                {
-                    if (held.IsDown) unmatchedModifierDown.Add(held.Vk);
-                    else unmatchedModifierDown.Remove(held.Vk);
-                }
                 Thread.Sleep(ReplayKeyStepMilliseconds);
             }
-
-            if (unmatchedModifierDown.Count == 0)
-            {
-                blockedSince = 0;
-            }
-            else if (blockedSince == 0)
-            {
-                blockedSince = Stopwatch.GetTimestamp();
-            }
-            else if (ElapsedMilliseconds(blockedSince) >= UnmatchedModifierGraceMilliseconds)
-            {
-                if (InputMarks.TestInput) Log.Write("shift_diag", $"grace period over, giving up waiting for: {string.Join(',', unmatchedModifierDown)}");
-                unmatchedModifierDown.Clear();
-                blockedSince = 0;
-            }
-
             // Ending the hold and finding the queue empty is one step, under the lock the hook callback uses.
             lock (HoldGate)
             {
-                if (Held.IsEmpty && unmatchedModifierDown.Count == 0)
+                if (Held.IsEmpty)
                 {
                     Holding = false;
                     _holdState = HoldNone;
-                    if (InputMarks.TestInput) Log.Write("shift_diag", "hold closed");
                     return;
                 }
             }
-            if (Held.IsEmpty) Thread.Sleep(ReplayKeyStepMilliseconds);
         }
     }
 
