@@ -357,6 +357,12 @@ internal sealed class KeyboardHook : IDisposable
     /// <summary>True while the hook has seen Shift pressed and not yet released (including keys it is holding).</summary>
     internal static bool ShiftTracked => _shiftTracked;
 
+    // Whether Shift was down, as far as the app being typed into knows, when the current hold began: its press was
+    // delivered and its release has not been. The release may be among the held keys by now, so the live state is not used.
+    private static volatile bool _holdShiftDown;
+
+    internal static bool ShiftDownForApp => _holdShiftDown;
+
     private static void TrackModifier(int vk, bool down)
     {
         switch (vk)
@@ -373,18 +379,6 @@ internal sealed class KeyboardHook : IDisposable
     /// <summary>True while Shift, Ctrl or a Windows key (and Alt, when asked) is physically down.</summary>
     public static bool ModifierKeyDown(bool includeAlt) =>
         IsDown(VK_SHIFT) || IsDown(VK_CONTROL) || IsDown(0x5B) || IsDown(0x5C) || (includeAlt && IsDown(VK_MENU));
-
-    /// <summary>
-    /// True while Shift is physically down right now, read fresh each call. A correction must check this at the moment
-    /// it is about to release or restore Shift, not rely on a snapshot taken when the hold began: real time passes
-    /// between the two (reading the app's text, settling), and any other source of Shift presses - another input
-    /// device, an on-screen keyboard, a macro tool, or a test harness synthesizing keystrokes - can press or release
-    /// Shift independently in that window. Using a stale snapshot there was the cause of a stuck-Shift bug: Typryt
-    /// released a Shift it believed was down, then re-pressed one to "restore" it without checking whether Shift was
-    /// already down again for an unrelated reason, leaving a press with no matching release once the other source's
-    /// own release arrived.
-    /// </summary>
-    internal static bool ShiftPhysicallyDown => IsDown(VK_SHIFT);
 
     /// <summary>True while Ctrl, Alt or a Windows key is down. Shift alone is not counted.</summary>
     internal static bool ShortcutModifierDown() => IsDown(VK_CONTROL) || IsDown(VK_MENU) || IsDown(0x5B) || IsDown(0x5C);
@@ -410,6 +404,7 @@ internal sealed class KeyboardHook : IDisposable
             _holdCapMilliseconds = capMilliseconds;
             _holdWindow = GetForegroundWindow();
             _holdFocus = FocusGuard.Generation;
+            _holdShiftDown = _shiftTracked;
             Held.Enqueue(_pendingKey);
             Holding = true;
             _holdStartedByThisKey = true;
