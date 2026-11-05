@@ -7,7 +7,7 @@ Typryt is autocorrect for the Windows 11 desktop, in the style of a phone keyboa
 MIT — see [LICENSE.txt](LICENSE.txt). Copyright (c) 2026 Gokul P.
 
 ![Home tab, dark theme](docs/screenshots/home-dark.png)
-![Settings tab, light theme](docs/screenshots/settings-light.png)
+![Home tab, light theme](docs/screenshots/home-light.png)
 [![Settings tab, dark theme](docs/screenshots/settings-dark.png)](docs/screenshots/settings-dark.png)
 [![Dictionary tab, dark theme](docs/screenshots/dictionary-dark.png)](docs/screenshots/dictionary-dark.png)
 
