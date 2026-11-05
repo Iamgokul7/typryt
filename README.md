@@ -1,4 +1,4 @@
-# `T|` Typryt
+# `T|` Typryt.
 
 **Type it right.** &nbsp;·&nbsp; Windows 11 &nbsp;·&nbsp; v1.0.2 &nbsp;·&nbsp; MIT
 
