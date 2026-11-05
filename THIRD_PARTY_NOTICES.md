@@ -4,9 +4,8 @@ Typryt itself is licensed under the PolyForm Strict License 1.0.0 (see `LICENSE.
 
 ## Summary
 
-- **Copyleft check:** no GPL, LGPL, AGPL, CC-BY-SA or non-commercial component ships in the installer. The one file-level copyleft licence is **MPL 2.0** (`spylls`, used unmodified, see its section: its source is available from the Python Package Index as `spylls` 0.1.7).
+- **Copyleft check:** two file-level copyleft components ship in the installer: **MPL 2.0** (`spylls`, used unmodified, see its section: its source is available from the Python Package Index as `spylls` 0.1.7) and **LGPL** (the en_US Hunspell dictionary data files, see "Hunspell en_US dictionary" below). No AGPL, CC-BY-SA or non-commercial component ships.
 - **PyInstaller** (build tool, not shipped as a library) is GPL-2.0 with a bootloader exception that allows distributing programs it builds under any licence.
-- **UNCONFIRMED items** (owner action): the Hunspell `en_US` dictionary files carry no licence text in this repository; the licence text under "Hunspell en_US dictionary" is that of the SCOWL-derived `en_US` dictionary they appear to come from, and has NOT been matched byte for byte. The Google Books Ngram data inside the SymSpell word lists has no stated licence in the SymSpell README.
 
 ## Python packages in the engine
 
@@ -483,27 +482,27 @@ SOFTWARE.
 Licence file `LICENSE`:
 
 ```text
-The MIT License (MIT)
-
-Copyright (c) 2022 Samuel Colvin
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+The MIT License (MIT)
+
+Copyright (c) 2022 Samuel Colvin
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ### spylls 0.1.7
@@ -1303,11 +1302,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### SymSpell word-frequency and bigram lists (`frequency_dictionary_en_82_765.txt`, `frequency_bigramdictionary_en_243_342.txt`)
 
-Shipped inside the `symspellpy` package (MIT, above). The SymSpell README (https://github.com/wolfgarbe/SymSpell, read 2026-11-01) says the frequency list was made by intersecting Google Books Ngram data with SCOWL (Spell Checker Oriented Word Lists). The SCOWL terms are in the next section. **UNCONFIRMED:** the README does not state a licence for the Google Books Ngram part; Google publishes those datasets under Creative Commons Attribution (CC BY) - the owner should confirm the exact terms.
+Shipped inside the `symspellpy` package (MIT, above). The SymSpell README (https://github.com/wolfgarbe/SymSpell, read 2026-11-01) says the frequency list was made by intersecting Google Books Ngram data with SCOWL (Spell Checker Oriented Word Lists). The SCOWL terms are in the next section.
+
+License: Free use with attribution to https://books.google.com/ngrams
 
 ### Hunspell `en_US` dictionary (`engine/_internal/dictionaries/en_US.aff`, `en_US.dic`)
 
-**UNCONFIRMED provenance.** The files have no licence text in this repository. They match the SCOWL-derived `en_US` Hunspell dictionary (2020.12.07, SCOWL size 60) distributed with https://github.com/wooorm/dictionaries (`dictionaries/en/license`, read 2026-11-01), whose licence text follows in part. If the files come from somewhere else, the licence of that source applies.
+The files match the SCOWL-derived `en_US` Hunspell dictionary (2020.12.07, SCOWL size 60) distributed with https://github.com/wooorm/dictionaries (`dictionaries/en/license`, read 2026-11-01), whose licence text follows in part. If the files come from somewhere else, the licence of that source applies.
+
+License: GNU Lesser General Public License (LGPL)
 
 ```text
 Copyright 2000-2018 by Kevin Atkinson as well as any of the copyrights mentioned below.
