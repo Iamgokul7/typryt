@@ -9,31 +9,32 @@ namespace Typryt;
 /// backspace correction on the way, and the cursor finishes as a full stop.
 ///
 /// Timeline (milliseconds):
-///   0 - 1500   the cursor blinks, about every 500 ms
-///   1500       t         (typed)
-///   1580       ty
-///   1660       t         (y deleted)
-///   1720       (empty)   (t deleted)
-///   1800       T         (corrected capital)
-///   1880 - 2200  Ty, Typ, Typr, Typry, Typryt
-///   2500       the cursor becomes a full stop and stays
+///   0 - 2850   the cursor blinks, about every 950 ms, fading rather than snapping
+///   2850       t         (typed)
+///   3000       ty
+///   3150       t         (y deleted)
+///   3250       (empty)   (t deleted)
+///   3400       T         (corrected capital)
+///   3580 - 4300  Ty, Typ, Typr, Typry, Typryt
+///   4500       the cursor becomes a full stop
+///   4900       the splash closes, after the full stop has held for 400 ms
 /// </summary>
 public static class AnimationHelper
 {
-    public const int TotalMilliseconds = 2500;
+    public const int TotalMilliseconds = 4900;
 
     private static readonly (int At, string Text)[] WordSteps =
     [
-        (1500, "t"),
-        (1580, "ty"),
-        (1660, "t"),
-        (1720, ""),
-        (1800, "T"),
-        (1880, "Ty"),
-        (1960, "Typ"),
-        (2040, "Typr"),
-        (2120, "Typry"),
-        (2200, "Typryt"),
+        (2850, "t"),
+        (3000, "ty"),
+        (3150, "t"),
+        (3250, ""),
+        (3400, "T"),
+        (3580, "Ty"),
+        (3760, "Typ"),
+        (3940, "Typr"),
+        (4120, "Typry"),
+        (4300, "Typryt"),
     ];
 
     /// <summary>Builds the storyboard for a word and its cursor. The caller starts it.</summary>
@@ -50,19 +51,20 @@ public static class AnimationHelper
         }
         Add(storyboard, typing, word, TextBlock.TextProperty);
 
-        // The cursor blinks until typing starts, stays solid while typing, then becomes a full stop.
+        // The cursor blinks until typing starts (fading in and out rather than snapping),
+        // stays solid while typing, then becomes a full stop.
         var blink = new DoubleAnimationUsingKeyFrames { Duration = Duration(TotalMilliseconds) };
-        for (int at = 0; at < 1500; at += 500)
-        {
-            double visible = (at / 500) % 2 == 0 ? 1 : 0;
-            blink.KeyFrames.Add(new DiscreteDoubleKeyFrame(visible, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(at))));
-        }
-        blink.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1500))));
+        blink.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+        blink.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(900))));
+        blink.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1050))));
+        blink.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1800))));
+        blink.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1950))));
+        blink.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(2850))));
         Add(storyboard, blink, cursor, UIElement.OpacityProperty);
 
         var cursorText = new StringAnimationUsingKeyFrames { Duration = Duration(TotalMilliseconds) };
         cursorText.KeyFrames.Add(new DiscreteStringKeyFrame("|", KeyTime.FromTimeSpan(TimeSpan.Zero)));
-        cursorText.KeyFrames.Add(new DiscreteStringKeyFrame(".", KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(TotalMilliseconds))));
+        cursorText.KeyFrames.Add(new DiscreteStringKeyFrame(".", KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(4500))));
         Add(storyboard, cursorText, cursor, TextBlock.TextProperty);
 
         return storyboard;
